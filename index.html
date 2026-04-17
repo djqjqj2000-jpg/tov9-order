@@ -2050,7 +2050,13 @@ function backToPicker(){
   if(si) si.value = '';
   document.getElementById('summary-bar').classList.remove('show');
   showScreenPicker();
-  loadDataSilent();
+  // 진행중인 저장 요청이 끝날 시간을 조금 확보한 뒤 데이터 새로 받아와서 picker 재렌더
+  setTimeout(async () => {
+    await loadDataSilent();
+    if(document.getElementById('screen-picker').style.display !== 'none'){
+      renderPickerScreen();
+    }
+  }, 800);
 }
 
 function backToPickerFromReceive(){
@@ -2316,7 +2322,11 @@ async function updateLineDebounced(itemId, changes){
       // 사용자가 이미 뒤로 나갔으면 (currentOrder=null) 조용히 종료
       if(!currentOrder){
         setSyncStatus('ok', '저장됨');
-        loadDataSilent();
+        // picker 화면으로 나가 있으면 거기에 반영
+        await loadDataSilent();
+        if(document.getElementById('screen-picker').style.display !== 'none'){
+          renderPickerScreen();
+        }
         return;
       }
       // 응답 검증 — result나 result.line 없으면 서버 측에서 재로드 후 반영
@@ -2364,7 +2374,10 @@ async function updateLineDebounced(itemId, changes){
       // 사용자가 이미 뒤로 나갔으면 조용히 종료
       if(!currentOrder){
         setSyncStatus('ok', '저장됨');
-        loadDataSilent();
+        await loadDataSilent();
+        if(document.getElementById('screen-picker').style.display !== 'none'){
+          renderPickerScreen();
+        }
         return;
       }
       orderLines[itemId] = {id: existing.id, qty: newQty, changePrice: newCp, saving: false};
