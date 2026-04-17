@@ -2031,7 +2031,7 @@ function backToPicker(){
   // 발주 입력 화면 → 거래처 picker 로
   // 작성중인데 품목 0개면 취소
   if(currentOrder && Object.keys(orderLines).length === 0 && currentOrder['상태'] === '작성중'){
-    apiPost('cancelOrder', {id: currentOrder.id, 작성자: CURRENT_USER})
+    apiPost('cancelOrder', {id: currentOrder.id, 작성자: CURRENT_USER ? CURRENT_USER.id : ""})
       .catch(()=>{/* 조용히 */});
     ORDERS = ORDERS.filter(o => o.id !== currentOrder.id);
   }
@@ -2309,14 +2309,23 @@ async function updateLineDebounced(itemId, changes){
         품목id: itemId,
         수량_주문: newQty,
         변경단가: newCp !== '' ? newCp : '',
-        작성자: CURRENT_USER,
+        작성자: CURRENT_USER ? CURRENT_USER.id : "",
       });
+      // 응답 검증 — result나 result.line 없으면 서버 측에서 재로드 후 반영
+      if(!result || !result.id){
+        throw new Error('서버 응답이 비어있습니다');
+      }
       orderLines[itemId] = {id: result.id, qty: newQty, changePrice: newCp, saving: false};
-      ORDER_DETAILS.push(result.line);
-      const order = ORDERS.find(o => o.id === currentOrder.id);
-      if(order){
-        order['총금액'] = (Number(order['총금액'])||0) + (Number(result.line['금액'])||0);
-        currentOrder = order;
+      if(result.line){
+        ORDER_DETAILS.push(result.line);
+        const order = ORDERS.find(o => o.id === currentOrder.id);
+        if(order){
+          order['총금액'] = (Number(order['총금액'])||0) + (Number(result.line['금액'])||0);
+          currentOrder = order;
+        }
+      } else {
+        // line 정보 없으면 전체 재로드로 맞추기
+        loadDataSilent();
       }
       setSyncStatus('ok', `마지막: ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`);
       renderOrderScreen();
@@ -2335,7 +2344,7 @@ async function updateLineDebounced(itemId, changes){
         id: existing.id,
         수량_주문: newQty,
         변경단가: newCp !== '' ? newCp : '',
-        작성자: CURRENT_USER,
+        작성자: CURRENT_USER ? CURRENT_USER.id : "",
       });
       orderLines[itemId] = {id: existing.id, qty: newQty, changePrice: newCp, saving: false};
       setSyncStatus('ok', `마지막: ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`);
@@ -2373,7 +2382,7 @@ async function deleteLine(itemId){
   renderOrderScreen();
   setSyncStatus('syncing', '삭제 중...');
   try{
-    await apiPost('deleteOrderLine', {id: lineId, 작성자: CURRENT_USER});
+    await apiPost('deleteOrderLine', {id: lineId, 작성자: CURRENT_USER ? CURRENT_USER.id : ""});
     ORDER_DETAILS = ORDER_DETAILS.filter(d => d.id !== lineId);
     const order = ORDERS.find(o => o.id === currentOrder.id);
     if(order){
@@ -2479,7 +2488,7 @@ async function saveNewItem(){
       규격: spec,
       최근단가: price === '' ? '' : price,
       등록경로: '발주중등록',
-      작성자: CURRENT_USER,
+      작성자: CURRENT_USER ? CURRENT_USER.id : "",
     });
     ITEMS.push(addResult.item);
     
@@ -2488,7 +2497,7 @@ async function saveNewItem(){
       품목id: addResult.id,
       수량_주문: qty,
       변경단가: '',
-      작성자: CURRENT_USER,
+      작성자: CURRENT_USER ? CURRENT_USER.id : "",
     });
     ORDER_DETAILS.push(lineResult.line);
     orderLines[addResult.id] = {id: lineResult.id, qty, changePrice: '', saving: false};
@@ -2541,7 +2550,7 @@ async function doConfirm(){
     const confirmedOrderId = currentOrder.id;
     const result = await apiPost('confirmOrder', {
       id: currentOrder.id,
-      확정자: CURRENT_USER,
+      확정자: CURRENT_USER ? CURRENT_USER.id : '',
     });
     closeModal('confirm-overlay');
     showToast(`✓ 발주 확정 완료 — ${result.표시번호}`);
@@ -2795,7 +2804,7 @@ async function submitReceive(){
       lines: linesPayload,
       입고일,
       출고일,
-      작성자: CURRENT_USER,
+      작성자: CURRENT_USER ? CURRENT_USER.id : "",
     });
     setSyncStatus('ok', '입고 처리 완료');
     showToast(`✓ ${result.count}개 품목 입고완료 처리됨`);
@@ -2829,7 +2838,7 @@ async function unmarkReceived(lineId){
   if(!confirm('이 품목의 입고완료를 해제하시겠습니까? (주문 상태로 되돌립니다)')) return;
   setSyncStatus('syncing', '해제 중...');
   try{
-    await apiPost('unmarkReceived', {id: lineId, 작성자: CURRENT_USER});
+    await apiPost('unmarkReceived', {id: lineId, 작성자: CURRENT_USER ? CURRENT_USER.id : ""});
     setSyncStatus('ok', '해제됨');
     showToast('입고완료 해제됨');
     await loadData();
