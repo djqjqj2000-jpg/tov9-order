@@ -1967,18 +1967,52 @@ async function startNewOrder(){
     return;
   }
   
-  setSyncStatus('syncing', '새 발주 생성 중...');
+  // 🚀 [즉시 반영] 임시 발주 객체로 화면 전환, 서버 요청은 백그라운드
+  const tempId = 'temp_' + Date.now();
+  const nowStr = new Date().toISOString().replace('T',' ').slice(0,19);
+  const tempOrder = {
+    id: tempId,
+    '거래처id': currentSupplier.id,
+    '상태': '작성중',
+    '표시번호': '',
+    '총금액': 0,
+    '시작자': CURRENT_USER ? CURRENT_USER.id : '',
+    '생성시각': nowStr,
+    '작성일': nowStr.slice(0, 10),
+    '메모': '',
+  };
+  currentOrder = tempOrder;
+  orderLines = {};
+  ORDERS.push(tempOrder);
+  showScreenOrder();  // 즉시 화면 전환
+  setSyncStatus('syncing', '발주 생성 중...');
+  
+  // 백그라운드에서 실제 서버 생성
   try{
     const result = await apiPost('createDraft', {
       거래처id: currentSupplier.id,
-      시작자: CURRENT_USER,
+      시작자: CURRENT_USER ? CURRENT_USER.id : '',
     });
-    currentOrder = result.order;
-    orderLines = {};
-    ORDERS.push(result.order);
-    setSyncStatus('ok', '새 발주 시작됨');
-    showScreenOrder();
+    // 임시 id를 실제 id로 교체
+    const idx = ORDERS.findIndex(o => o.id === tempId);
+    if(idx >= 0) ORDERS[idx] = result.order;
+    // 현재도 이 발주를 보고 있으면 currentOrder 갱신
+    if(currentOrder && currentOrder.id === tempId){
+      currentOrder = result.order;
+    }
+    setSyncStatus('ok', '발주 시작됨');
+    // 발주 화면이 열려 있으면 재렌더 (id가 실제 id로 교체되었으므로)
+    if(document.getElementById('screen-order').style.display !== 'none'){
+      renderOrderScreen();
+    }
   }catch(e){
+    // 실패 시 롤백
+    ORDERS = ORDERS.filter(o => o.id !== tempId);
+    if(currentOrder && currentOrder.id === tempId){
+      currentOrder = null;
+      orderLines = {};
+      backToPicker();
+    }
     setSyncStatus('error', '발주 생성 실패');
     showToast('⚠ 발주 생성 실패: ' + e.message);
   }
@@ -2037,6 +2071,40 @@ function backToPicker(){
       .catch(()=>{/* 조용히 */});
     ORDERS = ORDERS.filter(o => o.id !== currentOrder.id);
   }
+  
+  // 🚀 [즉시 반영] 서버 기다리지 말고 로컬 데이터로 ORDERS 업데이트
+  // 현재 작성중 발주의 orderLines 기준으로 품목 수와 총금액 재계산
+  if(currentOrder && currentOrder['상태'] === '작성중' && Object.keys(orderLines).length > 0){
+    const order = ORDERS.find(o => o.id === currentOrder.id);
+    if(order){
+      // orderLines 기준으로 ORDER_DETAILS도 맞춰 업데이트 (picker에서 품목 수 카운트)
+      // 기존 이 발주의 details 싹 지우고 orderLines 기반으로 재구성
+      ORDER_DETAILS = ORDER_DETAILS.filter(d => d['발주id'] !== currentOrder.id);
+      let total = 0;
+      Object.keys(orderLines).forEach(itemId => {
+        const line = orderLines[itemId];
+        if(!line.id || !(line.qty > 0)) return;
+        const item = ITEMS.find(i => i.id === itemId);
+        const recentP = item ? (Number(item['최근단가']) || 0) : 0;
+        const applied = line.changePrice !== '' ? Number(line.changePrice) : recentP;
+        const amount = applied * Number(line.qty);
+        total += amount;
+        ORDER_DETAILS.push({
+          id: line.id,
+          '발주id': currentOrder.id,
+          '품목id': itemId,
+          '품목명': item ? item['이름'] : '',
+          '규격': item ? item['규격'] : '',
+          '수량_주문': line.qty,
+          '적용단가': applied,
+          '금액': amount,
+          '상태': '주문',
+        });
+      });
+      order['총금액'] = total;
+    }
+  }
+  
   currentOrder = null;
   orderLines = {};
   itemSearch = '';
@@ -2050,13 +2118,13 @@ function backToPicker(){
   if(si) si.value = '';
   document.getElementById('summary-bar').classList.remove('show');
   showScreenPicker();
-  // 진행중인 저장 요청이 끝날 시간을 조금 확보한 뒤 데이터 새로 받아와서 picker 재렌더
+  // 백그라운드에서 서버 데이터 다시 받아 정확히 동기화 (체감 반응은 이미 즉시 반영됨)
   setTimeout(async () => {
     await loadDataSilent();
     if(document.getElementById('screen-picker').style.display !== 'none'){
       renderPickerScreen();
     }
-  }, 800);
+  }, 1500);
 }
 
 function backToPickerFromReceive(){
@@ -2297,6 +2365,20 @@ async function onChangePrice(itemId, value){
 }
 
 async function updateLineDebounced(itemId, changes){
+  // 🚀 [대기] 발주가 아직 서버에 생성 중이면(temp_id) 실제 id 받을 때까지 잠시 대기
+  if(currentOrder && String(currentOrder.id).startsWith('temp_')){
+    let waited = 0;
+    while(currentOrder && String(currentOrder.id).startsWith('temp_') && waited < 6000){
+      await new Promise(r => setTimeout(r, 150));
+      waited += 150;
+    }
+    // 6초 지나도 안 되면 포기
+    if(!currentOrder || String(currentOrder.id).startsWith('temp_')){
+      showToast('⚠ 발주 생성이 지연되고 있습니다. 잠시 후 다시 시도해주세요');
+      return;
+    }
+  }
+  
   const existing = orderLines[itemId];
   const newQty = changes.qty !== undefined ? changes.qty : (existing ? existing.qty : 0);
   const newCp = changes.changePrice !== undefined ? changes.changePrice : (existing ? existing.changePrice : '');
@@ -2595,14 +2677,27 @@ async function doConfirm(){
     closeModal('confirm-overlay');
     showToast(`✓ 발주 확정 완료 — ${result.표시번호}`);
     setSyncStatus('ok', '확정됨');
+    
+    // 🚀 [즉시 반영] loadData() 전체 재호출 대신 해당 발주만 로컬 업데이트
+    const orderIdx = ORDERS.findIndex(o => o.id === confirmedOrderId);
+    if(orderIdx >= 0){
+      ORDERS[orderIdx] = {
+        ...ORDERS[orderIdx],
+        '상태': '주문',
+        '표시번호': result.표시번호,
+        '확정자': CURRENT_USER ? CURRENT_USER.id : '',
+        '확정시각': result.확정시각 || new Date().toISOString().replace('T',' ').slice(0,19),
+      };
+    }
+    
     currentOrder = null;
     orderLines = {};
     document.getElementById('summary-bar').classList.remove('show');
-    // 거래처 진입 선택 화면(picker)으로 복귀
     showScreenPicker();
-    await loadData();
-    // 확정 직후 발주서 공유 모달 자동 열기
-    setTimeout(() => openShareModal(confirmedOrderId), 500);
+    // 확정 직후 발주서 공유 모달 자동 열기 (서버 대기 없이 바로)
+    setTimeout(() => openShareModal(confirmedOrderId), 200);
+    // 백그라운드 동기화 (표시번호 등 서버 확정값 재확인)
+    setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
     setSyncStatus('error', '확정 실패');
     showToast('⚠ 확정 실패: ' + e.message);
@@ -2849,23 +2944,52 @@ async function submitReceive(){
     setSyncStatus('ok', '입고 처리 완료');
     showToast(`✓ ${result.count}개 품목 입고완료 처리됨`);
     
-    // 데이터 재로드
-    await loadData();
-    // 현재 발주 상태 업데이트
-    const updated = ORDERS.find(o => o.id === receiveOrder.id);
-    if(updated){
-      receiveOrder = updated;
-      syncReceiveSelectionsFromBackend();
-      renderReceiveScreen();
+    // 🚀 [즉시 반영] 로컬 ORDER_DETAILS 업데이트
+    linesPayload.forEach(ln => {
+      const detail = ORDER_DETAILS.find(d => d.id === ln.id);
+      if(detail){
+        detail['상태'] = '입고완료';
+        detail['입고일'] = 입고일;
+        detail['출고일'] = 출고일;
+        if(ln.수량_입고 !== '') detail['수량_입고'] = Number(ln.수량_입고);
+        if(ln.변경단가 !== undefined && ln.변경단가 !== ''){
+          detail['변경단가'] = Number(ln.변경단가);
+          const recentP = Number(detail['최근단가']) || 0;
+          detail['적용단가'] = Number(ln.변경단가) || recentP;
+        }
+        // 금액 재계산
+        const applied = Number(detail['적용단가']) || 0;
+        const qtyIn = Number(detail['수량_입고']) || Number(detail['수량_주문']) || 0;
+        detail['금액'] = applied * qtyIn;
+      }
+    });
+    
+    // 발주 상태 재계산 (로컬)
+    const allDetails = ORDER_DETAILS.filter(d => d['발주id'] === receiveOrder.id);
+    const allReceived = allDetails.length > 0 && allDetails.every(d => d['상태'] === '입고완료');
+    const someReceived = allDetails.some(d => d['상태'] === '입고완료');
+    const newStatus = allReceived ? '전체완료' : (someReceived ? '부분입고' : '주문');
+    const total = allDetails.reduce((s,d) => s + (Number(d['금액'])||0), 0);
+    
+    const orderIdx = ORDERS.findIndex(o => o.id === receiveOrder.id);
+    if(orderIdx >= 0){
+      ORDERS[orderIdx] = {...ORDERS[orderIdx], '상태': newStatus, '총금액': total};
+      receiveOrder = ORDERS[orderIdx];
     }
     
+    syncReceiveSelectionsFromBackend();
+    renderReceiveScreen();
+    
     // 전체완료면 자동으로 picker로 돌아가기
-    if(updated && updated['상태'] === '전체완료'){
+    if(newStatus === '전체완료'){
       setTimeout(() => {
         showToast('✓ 모든 품목 입고완료 — 발주 전체완료');
         backToPickerFromReceive();
-      }, 1500);
+      }, 1200);
     }
+    
+    // 백그라운드 동기화
+    setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
     setSyncStatus('error', '처리 실패');
     showToast('⚠ 처리 실패: ' + e.message);
@@ -2881,13 +3005,34 @@ async function unmarkReceived(lineId){
     await apiPost('unmarkReceived', {id: lineId, 작성자: CURRENT_USER ? CURRENT_USER.id : ""});
     setSyncStatus('ok', '해제됨');
     showToast('입고완료 해제됨');
-    await loadData();
-    const updated = ORDERS.find(o => o.id === receiveOrder.id);
-    if(updated){
-      receiveOrder = updated;
+    
+    // 🚀 [즉시 반영] 해당 상세 라인을 '주문' 상태로 되돌림
+    const detail = ORDER_DETAILS.find(d => d.id === lineId);
+    if(detail){
+      detail['상태'] = '주문';
+      detail['입고일'] = '';
+      detail['출고일'] = '';
+      detail['수량_입고'] = '';
+    }
+    
+    // 발주 상태 재계산
+    if(receiveOrder){
+      const allDetails = ORDER_DETAILS.filter(d => d['발주id'] === receiveOrder.id);
+      const allReceived = allDetails.length > 0 && allDetails.every(d => d['상태'] === '입고완료');
+      const someReceived = allDetails.some(d => d['상태'] === '입고완료');
+      const newStatus = allReceived ? '전체완료' : (someReceived ? '부분입고' : '주문');
+      const total = allDetails.reduce((s,d) => s + (Number(d['금액'])||0), 0);
+      
+      const orderIdx = ORDERS.findIndex(o => o.id === receiveOrder.id);
+      if(orderIdx >= 0){
+        ORDERS[orderIdx] = {...ORDERS[orderIdx], '상태': newStatus, '총금액': total};
+        receiveOrder = ORDERS[orderIdx];
+      }
       syncReceiveSelectionsFromBackend();
       renderReceiveScreen();
     }
+    
+    setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
     setSyncStatus('error', '해제 실패');
     showToast('⚠ 해제 실패: ' + e.message);
@@ -4468,14 +4613,17 @@ async function confirmDeleteDraft(){
   }
   if(!confirm('이 작성중 발주를 완전히 삭제하시겠습니까?\n포함된 품목 라인도 모두 삭제됩니다.')) return;
   
+  const deletingId = currentOrder.id;
   try{
-    await apiPost('cancelOrder', {id: currentOrder.id});
+    await apiPost('cancelOrder', {id: deletingId});
     showToast('발주 삭제 완료');
+    // 🚀 [즉시 반영] 로컬 ORDERS/ORDER_DETAILS에서도 제거
+    ORDERS = ORDERS.filter(o => o.id !== deletingId);
+    ORDER_DETAILS = ORDER_DETAILS.filter(d => d['발주id'] !== deletingId);
     currentOrder = null;
     orderLines = {};
-    await loadData();
-    // 허브(picker) 화면으로
     backToPicker();
+    setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
     showToast('⚠ 삭제 실패: ' + e.message);
   }
@@ -4525,20 +4673,23 @@ async function doCancelOrder(){
   const order = getActiveOrder();
   if(!order) return;
   const reason = document.getElementById('cancel-reason').value.trim();
+  const cancelledId = order.id;
   
   try{
-    await apiPost('markOrderCancelled', {id: order.id, 사유: reason});
+    await apiPost('markOrderCancelled', {id: cancelledId, 사유: reason});
     closeModal('cancel-order-modal-overlay');
     showToast('주문 취소 완료');
+    // 🚀 [즉시 반영] 로컬 상태 '취소'로 변경
+    const idx = ORDERS.findIndex(o => o.id === cancelledId);
+    if(idx >= 0) ORDERS[idx] = {...ORDERS[idx], '상태': '취소'};
     currentOrder = null;
     receiveOrder = null;
-    await loadData();
-    // picker(거래처 진입 선택) 화면으로 돌아가기
     if(document.getElementById('screen-receive').style.display !== 'none'){
       backToPickerFromReceive();
     } else {
       backToPicker();
     }
+    setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
     showToast('⚠ 취소 실패: ' + e.message);
   }
@@ -4620,9 +4771,22 @@ async function doUpdateItem(){
     await apiPost('updateItem', {id, 이름, 규격, 카테고리id, 메모});
     closeModal('item-edit-modal-overlay');
     showToast('품목 수정 완료');
-    // 비활성 포함 상태면 loadData 후 다시 렌더
-    await loadData();
-    if(showInactiveItems) await refreshItemListWithInactive();
+    // 🚀 [즉시 반영] 로컬 ITEMS도 바로 수정
+    const idx = ITEMS.findIndex(i => i.id === id);
+    if(idx >= 0){
+      ITEMS[idx] = {...ITEMS[idx], '이름': 이름, '규격': 규격, '카테고리id': 카테고리id, '메모': 메모};
+    }
+    if(ALL_ITEMS_INCLUDING_INACTIVE){
+      const idx2 = ALL_ITEMS_INCLUDING_INACTIVE.findIndex(i => i.id === id);
+      if(idx2 >= 0){
+        ALL_ITEMS_INCLUDING_INACTIVE[idx2] = {...ALL_ITEMS_INCLUDING_INACTIVE[idx2], '이름': 이름, '규격': 규격, '카테고리id': 카테고리id, '메모': 메모};
+      }
+    }
+    if(document.getElementById('screen-order').style.display !== 'none'){
+      renderItemList();
+    }
+    // 백그라운드 동기화
+    setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
     alert('수정 실패: ' + e.message);
   }
@@ -4637,8 +4801,16 @@ async function doDeactivateItem(itemId){
     await apiPost('setItemActive', {id: itemId, 활성: false});
     closeModal('item-edit-modal-overlay');
     showToast(`${item['이름']} 비활성화`);
-    await loadData();
-    if(showInactiveItems) await refreshItemListWithInactive();
+    // 🚀 [즉시 반영] ITEMS에서 제거, 전체 캐시에선 활성=FALSE로 표시
+    ITEMS = ITEMS.filter(i => i.id !== itemId);
+    if(ALL_ITEMS_INCLUDING_INACTIVE){
+      const idx = ALL_ITEMS_INCLUDING_INACTIVE.findIndex(i => i.id === itemId);
+      if(idx >= 0) ALL_ITEMS_INCLUDING_INACTIVE[idx] = {...ALL_ITEMS_INCLUDING_INACTIVE[idx], '활성': 'FALSE'};
+    }
+    if(document.getElementById('screen-order').style.display !== 'none'){
+      renderItemList();
+    }
+    setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
     alert('처리 실패: ' + e.message);
   }
@@ -4654,8 +4826,22 @@ async function doReactivateItem(itemId){
     await apiPost('setItemActive', {id: itemId, 활성: true});
     closeModal('item-edit-modal-overlay');
     showToast(`${item['이름']} 재활성화`);
-    await loadData();
-    if(showInactiveItems) await refreshItemListWithInactive();
+    // 🚀 [즉시 반영] 활성 상태로 변경 — ITEMS에도 추가
+    const activated = {...item, '활성': 'TRUE'};
+    if(!ITEMS.find(i => i.id === itemId)){
+      ITEMS.push(activated);
+    } else {
+      const idx = ITEMS.findIndex(i => i.id === itemId);
+      ITEMS[idx] = activated;
+    }
+    if(ALL_ITEMS_INCLUDING_INACTIVE){
+      const idx = ALL_ITEMS_INCLUDING_INACTIVE.findIndex(i => i.id === itemId);
+      if(idx >= 0) ALL_ITEMS_INCLUDING_INACTIVE[idx] = activated;
+    }
+    if(document.getElementById('screen-order').style.display !== 'none'){
+      renderItemList();
+    }
+    setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
     alert('처리 실패: ' + e.message);
   }
