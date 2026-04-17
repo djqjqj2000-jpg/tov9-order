@@ -1700,6 +1700,7 @@ async function loadData(){
     ORDERS = data.orders || [];
     ORDER_DETAILS = data.orderDetails || [];
     ALLOWED_SUPPLIER_IDS = data.allowedSupplierIds || [];
+    if(data.staffNames){ STAFF_NAME_MAP = data.staffNames; }
     // 서버가 보낸 user로 CURRENT_USER 최신화 (역할 변경 대응)
     if(data.user){
       CURRENT_USER = data.user;
@@ -1744,6 +1745,7 @@ async function loadDataSilent(){
     ORDERS = data.orders || [];
     ORDER_DETAILS = data.orderDetails || [];
     ALLOWED_SUPPLIER_IDS = data.allowedSupplierIds || [];
+    if(data.staffNames){ STAFF_NAME_MAP = data.staffNames; }
     if(data.user) CURRENT_USER = data.user;
     setSyncStatus('ok', `마지막: ${new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'})}`);
   }catch(e){/* 조용히 */}
@@ -2311,6 +2313,12 @@ async function updateLineDebounced(itemId, changes){
         변경단가: newCp !== '' ? newCp : '',
         작성자: CURRENT_USER ? CURRENT_USER.id : "",
       });
+      // 사용자가 이미 뒤로 나갔으면 (currentOrder=null) 조용히 종료
+      if(!currentOrder){
+        setSyncStatus('ok', '저장됨');
+        loadDataSilent();
+        return;
+      }
       // 응답 검증 — result나 result.line 없으면 서버 측에서 재로드 후 반영
       if(!result || !result.id){
         throw new Error('서버 응답이 비어있습니다');
@@ -2328,8 +2336,15 @@ async function updateLineDebounced(itemId, changes){
         loadDataSilent();
       }
       setSyncStatus('ok', `마지막: ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`);
-      renderOrderScreen();
+      // 현재 여전히 발주 화면이면 재렌더, 아니면 스킵
+      if(document.getElementById('screen-order').style.display !== 'none'){
+        renderOrderScreen();
+      }
     }catch(e){
+      // 사용자가 이미 뒤로 나간 상태라면 에러 무시
+      if(!currentOrder || document.getElementById('screen-order').style.display === 'none'){
+        return;
+      }
       delete orderLines[itemId];
       renderOrderScreen();
       setSyncStatus('error', '저장 실패');
@@ -2346,12 +2361,18 @@ async function updateLineDebounced(itemId, changes){
         변경단가: newCp !== '' ? newCp : '',
         작성자: CURRENT_USER ? CURRENT_USER.id : "",
       });
+      // 사용자가 이미 뒤로 나갔으면 조용히 종료
+      if(!currentOrder){
+        setSyncStatus('ok', '저장됨');
+        loadDataSilent();
+        return;
+      }
       orderLines[itemId] = {id: existing.id, qty: newQty, changePrice: newCp, saving: false};
       setSyncStatus('ok', `마지막: ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`);
       const line = ORDER_DETAILS.find(d => d.id === existing.id);
       if(line){
         const item = ITEMS.find(i => i.id === itemId);
-        const recentP = Number(item['최근단가']) || 0;
+        const recentP = item ? (Number(item['최근단가']) || 0) : 0;
         const applied = newCp !== '' ? Number(newCp) : recentP;
         line['변경단가'] = newCp;
         line['수량_주문'] = newQty;
@@ -2364,8 +2385,14 @@ async function updateLineDebounced(itemId, changes){
         order['총금액'] = details.reduce((s,d) => s + (Number(d['금액'])||0), 0);
         currentOrder = order;
       }
-      renderOrderScreen();
+      if(document.getElementById('screen-order').style.display !== 'none'){
+        renderOrderScreen();
+      }
     }catch(e){
+      // 사용자가 이미 뒤로 나간 상태라면 에러 무시
+      if(!currentOrder || document.getElementById('screen-order').style.display === 'none'){
+        return;
+      }
       setSyncStatus('error', '저장 실패');
       showToast('⚠ 저장 실패: ' + e.message);
       orderLines[itemId] = existing;
@@ -3042,7 +3069,7 @@ function escapeHtml(str){
 }
 
 // 스태프 이름 매핑 (로그인 시스템 없는 동안 하드코딩)
-const STAFF_NAME_MAP = {
+let STAFF_NAME_MAP = {
   'stf_001': '이지훈',
 };
 
