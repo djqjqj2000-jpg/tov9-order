@@ -1137,10 +1137,10 @@ body{
 
     <div class="picker-section">
       <div class="picker-action" onclick="startNewOrder()">
-        <div class="picker-icon">📝</div>
+        <div class="picker-icon">📋</div>
         <div class="picker-body">
-          <div class="picker-ttl">새 발주 만들기</div>
-          <div class="picker-sub">작성중 상태로 시작</div>
+          <div class="picker-ttl">품목 확인 / 새 발주</div>
+          <div class="picker-sub">품목만 확인하거나 발주 시작</div>
         </div>
         <div class="picker-arrow">›</div>
       </div>
@@ -1957,64 +1957,47 @@ function pickOrder(orderId){
 }
 
 async function startNewOrder(){
-  // 이미 작성중 있으면 그것으로, 아니면 새로 생성
+  // 🎯 lazy 생성: 서버에 레코드 만들지 않고 화면만 전환
+  // 작성중 발주가 이미 있으면 그것으로 이어서, 없으면 "구경 모드"로
   const existingDraft = ORDERS.find(o => o['거래처id'] === currentSupplier.id && o['상태'] === '작성중');
   
   if(existingDraft){
+    // 기존 작성중 이어가기
     currentOrder = existingDraft;
     syncOrderLinesFromBackend();
     showScreenOrder();
     return;
   }
   
-  // 🚀 [즉시 반영] 임시 발주 객체로 화면 전환, 서버 요청은 백그라운드
-  const tempId = 'temp_' + Date.now();
-  const nowStr = new Date().toISOString().replace('T',' ').slice(0,19);
-  const tempOrder = {
-    id: tempId,
-    '거래처id': currentSupplier.id,
-    '상태': '작성중',
-    '표시번호': '',
-    '총금액': 0,
-    '시작자': CURRENT_USER ? CURRENT_USER.id : '',
-    '생성시각': nowStr,
-    '작성일': nowStr.slice(0, 10),
-    '메모': '',
-  };
-  currentOrder = tempOrder;
+  // 새로 시작: 서버 생성 없음. currentOrder=null 상태로 화면만 전환
+  // 첫 품목 수량 입력 순간에 createDraft 호출됨 (ensureDraftOrder 참조)
+  currentOrder = null;
   orderLines = {};
-  ORDERS.push(tempOrder);
-  showScreenOrder();  // 즉시 화면 전환
-  setSyncStatus('syncing', '발주 생성 중...');
+  showScreenOrder();
+}
+
+/* 🎯 첫 품목 입력 순간 호출 — 아직 서버에 발주 레코드 없으면 생성 */
+async function ensureDraftOrder(){
+  if(currentOrder) return currentOrder;  // 이미 있으면 그대로
   
-  // 백그라운드에서 실제 서버 생성
+  setSyncStatus('syncing', '발주 생성 중...');
   try{
     const result = await apiPost('createDraft', {
       거래처id: currentSupplier.id,
       시작자: CURRENT_USER ? CURRENT_USER.id : '',
     });
-    // 임시 id를 실제 id로 교체
-    const idx = ORDERS.findIndex(o => o.id === tempId);
-    if(idx >= 0) ORDERS[idx] = result.order;
-    // 현재도 이 발주를 보고 있으면 currentOrder 갱신
-    if(currentOrder && currentOrder.id === tempId){
-      currentOrder = result.order;
-    }
+    currentOrder = result.order;
+    ORDERS.push(result.order);
     setSyncStatus('ok', '발주 시작됨');
-    // 발주 화면이 열려 있으면 재렌더 (id가 실제 id로 교체되었으므로)
+    // 헤더 상태 갱신
     if(document.getElementById('screen-order').style.display !== 'none'){
       renderOrderScreen();
     }
+    return currentOrder;
   }catch(e){
-    // 실패 시 롤백
-    ORDERS = ORDERS.filter(o => o.id !== tempId);
-    if(currentOrder && currentOrder.id === tempId){
-      currentOrder = null;
-      orderLines = {};
-      backToPicker();
-    }
     setSyncStatus('error', '발주 생성 실패');
     showToast('⚠ 발주 생성 실패: ' + e.message);
+    throw e;
   }
 }
 
@@ -2161,10 +2144,18 @@ function showScreenOrder(){
 function renderOrderScreen(){
   document.getElementById('order-title').textContent = currentSupplier['표시명'];
   const lineCount = Object.keys(orderLines).length;
-  // 상태별 subtitle — 취소된 발주면 명시
-  const st = currentOrder ? currentOrder['상태'] : '작성중';
-  const displayNum = currentOrder && currentOrder['표시번호'] ? currentOrder['표시번호'] + ' · ' : '';
-  document.getElementById('order-subtitle').textContent = `${displayNum}상태: ${st}${st === '작성중' ? ` · ${lineCount}개 품목` : ''}`;
+  
+  // 🎯 lazy 생성 상태 반영
+  let subtitle;
+  if(!currentOrder){
+    // 아직 서버에 발주 레코드 없음 — 품목 구경 모드
+    subtitle = '품목 확인중 · 수량을 입력하면 발주가 시작됩니다';
+  } else {
+    const st = currentOrder['상태'];
+    const displayNum = currentOrder['표시번호'] ? currentOrder['표시번호'] + ' · ' : '';
+    subtitle = `${displayNum}상태: ${st}${st === '작성중' ? ` · ${lineCount}개 품목` : ''}`;
+  }
+  document.getElementById('order-subtitle').textContent = subtitle;
   
   renderCategoryTabs();
   renderItemList();
@@ -2365,29 +2356,30 @@ async function onChangePrice(itemId, value){
 }
 
 async function updateLineDebounced(itemId, changes){
-  // 🚀 [대기] 발주가 아직 서버에 생성 중이면(temp_id) 실제 id 받을 때까지 잠시 대기
-  if(currentOrder && String(currentOrder.id).startsWith('temp_')){
-    let waited = 0;
-    while(currentOrder && String(currentOrder.id).startsWith('temp_') && waited < 6000){
-      await new Promise(r => setTimeout(r, 150));
-      waited += 150;
-    }
-    // 6초 지나도 안 되면 포기
-    if(!currentOrder || String(currentOrder.id).startsWith('temp_')){
-      showToast('⚠ 발주 생성이 지연되고 있습니다. 잠시 후 다시 시도해주세요');
-      return;
-    }
-  }
-  
   const existing = orderLines[itemId];
   const newQty = changes.qty !== undefined ? changes.qty : (existing ? existing.qty : 0);
   const newCp = changes.changePrice !== undefined ? changes.changePrice : (existing ? existing.changePrice : '');
   
+  // 수량 0으로 만들면 삭제
   if(newQty === 0 && existing){
     await deleteLine(itemId);
     return;
   }
   if(newQty === 0) return;
+  
+  // 🎯 lazy 생성: 발주 레코드가 아직 없으면 지금 서버에 생성
+  if(!currentOrder){
+    try{
+      await ensureDraftOrder();
+    }catch(e){
+      // 생성 실패 시 사용자에게 알림, 저장 중단
+      return;
+    }
+    if(!currentOrder){
+      showToast('⚠ 발주 생성이 지연되고 있습니다. 잠시 후 다시 시도해주세요');
+      return;
+    }
+  }
   
   if(!existing){
     setSyncStatus('syncing', '저장 중...');
@@ -2523,7 +2515,8 @@ async function deleteLine(itemId){
 function renderSummaryBar(){
   const bar = document.getElementById('summary-bar');
   const count = Object.keys(orderLines).length;
-  if(count === 0){
+  // 🎯 발주 레코드 없거나(품목 확인중) 품목 0개면 하단 바 숨김
+  if(count === 0 || !currentOrder){
     bar.classList.remove('show');
     return;
   }
