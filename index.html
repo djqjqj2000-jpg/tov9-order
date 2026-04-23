@@ -1609,6 +1609,26 @@ function clearSession(){
 }
 
 /* ══════════════════════════════════════════
+   유틸 함수
+══════════════════════════════════════════ */
+/**
+ * 수량 표기 — 불필요한 0 제거
+ *   formatQty(0.5)   → "0.5"
+ *   formatQty(0.50)  → "0.5"
+ *   formatQty(0.25)  → "0.25"
+ *   formatQty(2)     → "2"
+ *   formatQty(2.00)  → "2"
+ *   formatQty(null)  → ""
+ */
+function formatQty(val){
+  if(val === null || val === undefined || val === '') return '';
+  const n = Number(val);
+  if(isNaN(n)) return '';
+  // 소수점 2자리로 반올림 후 parseFloat로 불필요한 0 제거
+  return String(parseFloat(n.toFixed(2)));
+}
+
+/* ══════════════════════════════════════════
    API 통신
 ══════════════════════════════════════════ */
 function setSyncStatus(state, msg){
@@ -2070,7 +2090,7 @@ function backToPicker(){
         const item = ITEMS.find(i => i.id === itemId);
         const recentP = item ? (Number(item['최근단가']) || 0) : 0;
         const applied = line.changePrice !== '' ? Number(line.changePrice) : recentP;
-        const amount = applied * Number(line.qty);
+        const amount = Math.round(applied * Number(line.qty));  // 원 단위 반올림
         total += amount;
         ORDER_DETAILS.push({
           id: line.id,
@@ -2288,7 +2308,7 @@ function renderItemList(){
           </div>
           <div class="input-group">
             <span class="input-label">변경단가</span>
-            <input class="price-input" type="number" min="0" inputmode="numeric"
+            <input class="price-input" type="number" min="0" step="1" inputmode="numeric"
                    placeholder="${active ? '(변경시)' : ''}"
                    value="${changePrice}"
                    ${active ? '' : 'disabled'}
@@ -2296,9 +2316,9 @@ function renderItemList(){
           </div>
           <div class="input-group">
             <span class="input-label">수량</span>
-            <input class="qty-input" type="number" min="0" inputmode="numeric"
+            <input class="qty-input" type="number" min="0" step="0.01" inputmode="decimal"
                    placeholder="${active ? '0' : '-'}"
-                   value="${qty}"
+                   value="${formatQty(qty)}"
                    ${active ? '' : 'disabled'}
                    onchange="onChangeQty('${i.id}', this.value)">
           </div>
@@ -2346,7 +2366,10 @@ function clearItemSearch(){
 }
 
 async function onChangeQty(itemId, value){
-  const qty = Number(value) || 0;
+  let qty = Number(value) || 0;
+  // 음수 방지 + 소수점 2자리로 제한
+  if(qty < 0) qty = 0;
+  qty = Math.round(qty * 100) / 100;
   await updateLineDebounced(itemId, {qty});
 }
 
@@ -2464,7 +2487,7 @@ async function updateLineDebounced(itemId, changes){
         line['변경단가'] = newCp;
         line['수량_주문'] = newQty;
         line['적용단가'] = applied;
-        line['금액'] = applied * newQty;
+        line['금액'] = Math.round(applied * newQty);  // 원 단위 반올림
       }
       const order = ORDERS.find(o => o.id === currentOrder.id);
       if(order){
@@ -2647,7 +2670,7 @@ function openConfirm(){
   summary.innerHTML = lines.map(d => `
     <div class="confirm-item">
       <span class="confirm-item-name">${d['품목명']} <span style="color:var(--text3);font-size:11px;">${d['규격']||''}</span></span>
-      <span class="confirm-item-qty">${d['수량_주문']} × ${Number(d['적용단가']||0).toLocaleString()} = ${Number(d['금액']||0).toLocaleString()}원</span>
+      <span class="confirm-item-qty">${formatQty(d['수량_주문'])} × ${Number(d['적용단가']||0).toLocaleString()} = ${Number(d['금액']||0).toLocaleString()}원</span>
     </div>
   `).join('') + `
     <div class="confirm-total">
@@ -2793,7 +2816,7 @@ function renderReceiveScreen(){
               ${statusTag}
             </div>
             <div class="receive-item-order">
-              규격 ${ln['규격']||'-'} · 주문 ${ln['수량_주문']}개 · 단가 ${Number(ln['적용단가']||0).toLocaleString()}원 · ${Number(ln['금액']||0).toLocaleString()}원
+              규격 ${ln['규격']||'-'} · 주문 ${formatQty(ln['수량_주문'])} · 단가 ${Number(ln['적용단가']||0).toLocaleString()}원 · ${Number(ln['금액']||0).toLocaleString()}원
             </div>
           </div>
           ${unmarkBtn}
@@ -2802,14 +2825,14 @@ function renderReceiveScreen(){
         <div class="receive-row-edits">
           <div class="receive-edit-group">
             <span class="receive-edit-label">실제 입고 수량 (빈칸=주문대로)</span>
-            <input class="receive-edit-input" type="number" min="0" inputmode="numeric"
-                   placeholder="${ln['수량_주문']}"
-                   value="${defaultQtyIn}"
+            <input class="receive-edit-input" type="number" min="0" step="0.01" inputmode="decimal"
+                   placeholder="${formatQty(ln['수량_주문'])}"
+                   value="${formatQty(defaultQtyIn)}"
                    onchange="onReceiveQtyChange('${ln.id}', this.value)">
           </div>
           <div class="receive-edit-group">
             <span class="receive-edit-label">최종 단가 (명세서 기준)</span>
-            <input class="receive-edit-input" type="number" min="0" inputmode="numeric"
+            <input class="receive-edit-input" type="number" min="0" step="1" inputmode="numeric"
                    placeholder="${recentP ? recentP.toLocaleString() : '(변경 시 입력)'}"
                    value="${defaultPriceChange}"
                    onchange="onReceivePriceChange('${ln.id}', this.value)">
@@ -2843,7 +2866,7 @@ function renderReceiveSummary(){
     const 변경단가 = sel.변경단가 !== '' ? Number(sel.변경단가) : (ln['변경단가'] !== '' ? Number(ln['변경단가']) : '');
     const 적용단가 = (변경단가 !== '' && 변경단가 > 0) ? 변경단가 : 최근단가;
     const 수량_입고 = sel.수량_입고 !== '' ? Number(sel.수량_입고) : Number(ln['수량_주문']) || 0;
-    total += 적용단가 * 수량_입고;
+    total += Math.round(적용단가 * 수량_입고);  // 라인별 반올림 후 누적
   });
   
   bar.classList.add('show');
@@ -2859,7 +2882,16 @@ function onReceiveCheck(lineId, checked){
 
 function onReceiveQtyChange(lineId, value){
   if(!receiveSelections[lineId]) receiveSelections[lineId] = {checked:false, 수량_입고:'', 변경단가:''};
-  receiveSelections[lineId].수량_입고 = value;
+  // 빈칸이면 빈 문자열 유지 (주문대로 의미)
+  if(value === '' || value === null){
+    receiveSelections[lineId].수량_입고 = '';
+  } else {
+    let qty = Number(value);
+    if(isNaN(qty) || qty < 0) qty = 0;
+    // 소수점 2자리로 제한
+    qty = Math.round(qty * 100) / 100;
+    receiveSelections[lineId].수량_입고 = qty;
+  }
   renderReceiveSummary();
 }
 
@@ -2953,7 +2985,7 @@ async function submitReceive(){
         // 금액 재계산
         const applied = Number(detail['적용단가']) || 0;
         const qtyIn = Number(detail['수량_입고']) || Number(detail['수량_주문']) || 0;
-        detail['금액'] = applied * qtyIn;
+        detail['금액'] = Math.round(applied * qtyIn);  // 원 단위 반올림
       }
     });
     
@@ -3139,7 +3171,7 @@ function renderOrderSheetPreview(order){
           return `
           <div class="os-item">
             <span class="os-item-name">${escapeHtml(d['품목명']||'-')}</span>
-            <span class="os-item-qtyspec">${specHtml}<span class="os-item-times">×</span><span class="os-item-qty-num">${d['수량_주문']||0}</span></span>
+            <span class="os-item-qtyspec">${specHtml}<span class="os-item-times">×</span><span class="os-item-qty-num">${formatQty(d['수량_주문']||0)}</span></span>
           </div>`;
         }).join('')}
       </div>
@@ -3568,7 +3600,7 @@ function renderSettleContent(){
         <div class="settle-pending-hdr">⚠ 단가 미확정 (${pendingLines.length}건) — 합계 제외</div>
         ${pendingLines.map(l => `
           <div class="settle-pending-line">
-            <div class="settle-pending-name">${escapeHtml(l.품목명)}${l.규격?` <span style="font-weight:400;color:var(--text3);">${escapeHtml(l.규격)}</span>`:''} × ${l.수량}</div>
+            <div class="settle-pending-name">${escapeHtml(l.품목명)}${l.규격?` <span style="font-weight:400;color:var(--text3);">${escapeHtml(l.규격)}</span>`:''} × ${formatQty(l.수량)}</div>
             <div class="settle-pending-info">출고일 ${l.출고일||'-'} · 입고일 ${l.입고일||'-'} · 입고처리 시 단가 확인 필요</div>
           </div>
         `).join('')}
@@ -3610,7 +3642,7 @@ function renderSettleLine(l){
     <div class="settle-line-card">
       <div class="settle-line-row1">
         <div class="settle-line-name">${escapeHtml(l.품목명)}</div>
-        <div class="settle-line-qty">${규격}× ${l.수량}</div>
+        <div class="settle-line-qty">${규격}× ${formatQty(l.수량)}</div>
       </div>
       <div class="settle-line-row2">
         <div class="settle-line-price">@ ${l.적용단가.toLocaleString('ko-KR')}</div>
@@ -3680,7 +3712,7 @@ function renderSettleByItem(lines){
           ${g.lines.sort((a,b) => (a.출고일||'').localeCompare(b.출고일||'')).map(l => `
             <div class="settle-item-detail-row">
               <span class="settle-item-detail-date">${l.출고일 || '-'}</span>
-              <span class="settle-item-detail-qty">${규격} × ${l.수량} @ ${l.적용단가.toLocaleString('ko-KR')}</span>
+              <span class="settle-item-detail-qty">${규격} × ${formatQty(l.수량)} @ ${l.적용단가.toLocaleString('ko-KR')}</span>
               <span class="settle-item-detail-amt">${l.금액.toLocaleString('ko-KR')}원</span>
             </div>
             ${l.변동있음 && l.단가변동액 !== null ? `
@@ -3790,7 +3822,7 @@ function buildSettleRenderHTML(){
         <div style="font-size:11px;font-weight:600;color:#B45309;margin-bottom:6px;">⚠ 단가 미확정 (${pendingLines.length}건) — 합계 제외</div>
         ${pendingLines.map(l => `
           <div style="background:#fff;border:1px solid #E5E5EB;border-radius:6px;padding:7px 10px;margin-bottom:4px;">
-            <div style="font-size:11px;font-weight:600;color:#15161B;">${escapeHtml(l.품목명)} ${l.규격?`<span style="font-weight:400;color:#9B9DA5;">${escapeHtml(l.규격)}</span>`:''} × ${l.수량}</div>
+            <div style="font-size:11px;font-weight:600;color:#15161B;">${escapeHtml(l.품목명)} ${l.규격?`<span style="font-weight:400;color:#9B9DA5;">${escapeHtml(l.규격)}</span>`:''} × ${formatQty(l.수량)}</div>
             <div style="font-size:9px;color:#9B9DA5;font-family:'JetBrains Mono',monospace;margin-top:2px;">출고일 ${l.출고일||'-'} · 입고일 ${l.입고일||'-'}</div>
           </div>
         `).join('')}
@@ -4014,7 +4046,7 @@ function renderOverviewContent(){
         <div class="overview-pending-hdr">⚠ 단가 미확정 (${d.pendingLines.length}건) — 합계 제외</div>
         ${d.pendingLines.map(l => `
           <div class="overview-pending-row">
-            <div class="overview-pending-row-name">${escapeHtml(l.품목명)} ${l.규격?`<span style="color:var(--text3);">${escapeHtml(l.규격)}</span>`:''} × ${l.수량}</div>
+            <div class="overview-pending-row-name">${escapeHtml(l.품목명)} ${l.규격?`<span style="color:var(--text3);">${escapeHtml(l.규격)}</span>`:''} × ${formatQty(l.수량)}</div>
             <div class="overview-pending-row-meta">[${escapeHtml(l.거래처)}] 출고 ${l.출고일 || '-'}</div>
           </div>
         `).join('')}
