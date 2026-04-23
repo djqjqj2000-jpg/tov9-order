@@ -204,6 +204,28 @@ body{
 .submit-btn:active{transform:scale(0.97);}
 .submit-btn:disabled{background:#666;cursor:not-allowed;opacity:0.5;}
 
+/* 🚀 로딩 상태 — 모든 버튼 공통 */
+.btn-loading{
+  position:relative;
+  cursor:wait !important;
+  opacity:0.7 !important;
+}
+.btn-loading::after{
+  content:'';
+  display:inline-block;
+  width:12px;
+  height:12px;
+  margin-left:8px;
+  border:2px solid currentColor;
+  border-right-color:transparent;
+  border-radius:50%;
+  animation:btn-spin 0.7s linear infinite;
+  vertical-align:middle;
+}
+@keyframes btn-spin{
+  to{ transform:rotate(360deg); }
+}
+
 /* ══════════════════════════════════════════
    입고 처리 화면 (v0.3 신규)
 ══════════════════════════════════════════ */
@@ -1628,6 +1650,54 @@ function formatQty(val){
   return String(parseFloat(n.toFixed(2)));
 }
 
+/**
+ * 🚀 버튼 로딩 상태 헬퍼
+ * async 작업이 끝날 때까지 버튼 비활성화 + "처리 중..." 표시
+ * 
+ * 사용법:
+ *   await withBtnLoading(event, '처리 중...', async () => {
+ *     await apiPost(...);
+ *   });
+ * 
+ * 효과:
+ * - 중복 클릭 완전 차단
+ * - 사용자에게 "시스템이 반응하고 있다" 피드백
+ * - 에러 발생해도 버튼 자동 복원
+ */
+async function withBtnLoading(eventOrBtn, loadingText, asyncFn){
+  // event 객체든 button element든 받음
+  let btn;
+  if(eventOrBtn && eventOrBtn.currentTarget){
+    btn = eventOrBtn.currentTarget;
+  } else if(eventOrBtn && eventOrBtn.target){
+    btn = eventOrBtn.target;
+  } else if(eventOrBtn && eventOrBtn.tagName){
+    btn = eventOrBtn;
+  }
+  
+  if(!btn){
+    // 버튼 못 찾으면 그냥 실행
+    return await asyncFn();
+  }
+  
+  const originalText = btn.textContent;
+  const originalDisabled = btn.disabled;
+  btn.disabled = true;
+  if(loadingText) btn.textContent = loadingText;
+  btn.classList.add('btn-loading');
+  
+  try{
+    return await asyncFn();
+  }finally{
+    // 버튼이 화면에 아직 있으면 복원 (모달 닫힌 후면 이미 DOM에서 사라짐 — 그래도 안전)
+    if(btn && document.body.contains(btn)){
+      btn.disabled = originalDisabled;
+      btn.textContent = originalText;
+      btn.classList.remove('btn-loading');
+    }
+  }
+}
+
 /* ══════════════════════════════════════════
    API 통신
 ══════════════════════════════════════════ */
@@ -1997,28 +2067,38 @@ async function startNewOrder(){
 }
 
 /* 🎯 첫 품목 입력 순간 호출 — 아직 서버에 발주 레코드 없으면 생성 */
+let _ensuringDraft = null;  // 진행 중인 생성 Promise (중복 방지)
 async function ensureDraftOrder(){
   if(currentOrder) return currentOrder;  // 이미 있으면 그대로
   
+  // 🔒 이미 진행 중인 생성이 있으면 그 Promise 기다리기 (빠른 연속 입력 방지)
+  if(_ensuringDraft) return await _ensuringDraft;
+  
   setSyncStatus('syncing', '발주 생성 중...');
-  try{
-    const result = await apiPost('createDraft', {
-      거래처id: currentSupplier.id,
-      시작자: CURRENT_USER ? CURRENT_USER.id : '',
-    });
-    currentOrder = result.order;
-    ORDERS.push(result.order);
-    setSyncStatus('ok', '발주 시작됨');
-    // 헤더 상태 갱신
-    if(document.getElementById('screen-order').style.display !== 'none'){
-      renderOrderScreen();
+  _ensuringDraft = (async () => {
+    try{
+      const result = await apiPost('createDraft', {
+        거래처id: currentSupplier.id,
+        시작자: CURRENT_USER ? CURRENT_USER.id : '',
+      });
+      currentOrder = result.order;
+      ORDERS.push(result.order);
+      setSyncStatus('ok', '발주 시작됨');
+      // 헤더 상태 갱신
+      if(document.getElementById('screen-order').style.display !== 'none'){
+        renderOrderScreen();
+      }
+      return currentOrder;
+    }catch(e){
+      setSyncStatus('error', '발주 생성 실패');
+      showToast('⚠ 발주 생성 실패: ' + e.message);
+      throw e;
+    }finally{
+      _ensuringDraft = null;
     }
-    return currentOrder;
-  }catch(e){
-    setSyncStatus('error', '발주 생성 실패');
-    showToast('⚠ 발주 생성 실패: ' + e.message);
-    throw e;
-  }
+  })();
+  
+  return await _ensuringDraft;
 }
 
 async function resumeDraft(orderId){
@@ -2606,6 +2686,10 @@ function pickSimilar(itemId){
 }
 
 async function saveNewItem(){
+  // 중복 클릭 가드
+  const btn = document.querySelector('#quick-add-overlay .btn-primary');
+  if(btn && btn.disabled) return;
+  
   const name = document.getElementById('new-item-name').value.trim();
   const spec = document.getElementById('new-item-spec').value.trim();
   const priceVal = document.getElementById('new-item-price').value;
@@ -2615,6 +2699,12 @@ async function saveNewItem(){
   
   if(!name){alert('품목명을 입력하세요');return;}
   if(qty <= 0){alert('수량을 입력하세요');return;}
+  
+  // 버튼 즉시 비활성화 (모달 닫기 전)
+  if(btn){
+    btn.disabled = true;
+    btn.classList.add('btn-loading');
+  }
   
   closeModal('quick-add-overlay');
   setSyncStatus('syncing', '품목 추가 중...');
@@ -2682,7 +2772,11 @@ function openConfirm(){
 }
 
 async function doConfirm(){
-  document.getElementById('do-confirm-btn').disabled = true;
+  const btn = document.getElementById('do-confirm-btn');
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '확정 중...';
+  btn.classList.add('btn-loading');
   setSyncStatus('syncing', '발주 확정 중...');
   try{
     const confirmedOrderId = currentOrder.id;
@@ -2718,7 +2812,12 @@ async function doConfirm(){
     setSyncStatus('error', '확정 실패');
     showToast('⚠ 확정 실패: ' + e.message);
   }finally{
-    document.getElementById('do-confirm-btn').disabled = false;
+    const btn = document.getElementById('do-confirm-btn');
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = origText;
+      btn.classList.remove('btn-loading');
+    }
   }
 }
 
@@ -2955,7 +3054,11 @@ async function submitReceive(){
     };
   });
   
-  document.getElementById('receive-submit-btn').disabled = true;
+  const submitBtn = document.getElementById('receive-submit-btn');
+  const originalBtnText = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = '처리 중...';
+  submitBtn.classList.add('btn-loading');
   setSyncStatus('syncing', '입고 처리 중...');
   
   try{
@@ -3019,7 +3122,12 @@ async function submitReceive(){
     setSyncStatus('error', '처리 실패');
     showToast('⚠ 처리 실패: ' + e.message);
   }finally{
-    document.getElementById('receive-submit-btn').disabled = false;
+    const btn = document.getElementById('receive-submit-btn');
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = originalBtnText;
+      btn.classList.remove('btn-loading');
+    }
   }
 }
 
@@ -4150,6 +4258,7 @@ async function doLogin(){
   
   btn.disabled = true;
   btn.textContent = '로그인 중...';
+  btn.classList.add('btn-loading');
   
   try{
     const result = await apiCall({
@@ -4173,12 +4282,15 @@ async function doLogin(){
     
     // 데이터 로드
     await loadData();
+    // Keep-alive ping 시작 (GAS 콜드 스타트 방지)
+    startKeepAlivePing();
   }catch(e){
     errEl.textContent = e.message || '로그인에 실패했습니다';
     errEl.classList.add('show');
   }finally{
     btn.disabled = false;
     btn.textContent = '로그인';
+    btn.classList.remove('btn-loading');
   }
 }
 
@@ -4197,6 +4309,12 @@ async function doLogout(){
   }
   
   clearSession();
+  
+  // Keep-alive ping 중지
+  if(_keepAliveTimer){
+    clearInterval(_keepAliveTimer);
+    _keepAliveTimer = null;
+  }
   
   // 앱 상태 초기화
   SUPPLIERS = []; CATEGORIES = []; ITEMS = []; ORDERS = []; ORDER_DETAILS = [];
@@ -4749,8 +4867,8 @@ function openItemEditModal(itemId){
   
   // 상태에 따라 비활성/재활성 버튼 분기
   const statusBtn = isActive 
-    ? `<button class="btn-cancel-res" onclick="doDeactivateItem('${escapeHtml(item.id)}')" style="color:var(--danger);border-color:#FCC5C5;">비활성화</button>`
-    : `<button class="btn-cancel-res" onclick="doReactivateItem('${escapeHtml(item.id)}')" style="color:var(--success);border-color:#C7EAD8;">재활성화</button>`;
+    ? `<button class="btn-cancel-res" id="ie-deactivate-btn" onclick="doDeactivateItem('${escapeHtml(item.id)}')" style="color:var(--danger);border-color:#FCC5C5;">비활성화</button>`
+    : `<button class="btn-cancel-res" id="ie-reactivate-btn" onclick="doReactivateItem('${escapeHtml(item.id)}')" style="color:var(--success);border-color:#C7EAD8;">재활성화</button>`;
   
   body.innerHTML = `
     <input type="hidden" id="ie-id" value="${escapeHtml(item.id)}">
@@ -4775,15 +4893,19 @@ function openItemEditModal(itemId){
       💡 최근단가 <b style="color:var(--text2);">${recentPrice ? recentPrice.toLocaleString('ko-KR') + '원' : '없음'}</b>은 발주/입고 처리 시 자동으로 업데이트됩니다 (수동 수정 불가)
     </div>
     <div class="sheet-foot" style="margin:16px -18px -16px;">
-      <button class="btn-save" onclick="doUpdateItem()">저장</button>
+      <button class="btn-save" id="ie-save-btn" onclick="doUpdateItem()">저장</button>
       ${statusBtn}
-      <button class="btn-close-f" onclick="closeModal('item-edit-modal-overlay')">취소</button>
+      <button class="btn-close-f" id="ie-cancel-btn" onclick="closeModal('item-edit-modal-overlay')">취소</button>
     </div>
   `;
   document.getElementById('item-edit-modal-overlay').classList.add('show');
 }
 
 async function doUpdateItem(){
+  // 중복 클릭 가드
+  const btn = document.getElementById('ie-save-btn');
+  if(btn && btn.disabled) return;
+  
   const id = document.getElementById('ie-id').value;
   const 이름 = document.getElementById('ie-name').value.trim();
   const 규격 = document.getElementById('ie-spec').value.trim();
@@ -4791,6 +4913,20 @@ async function doUpdateItem(){
   const 메모 = document.getElementById('ie-note').value.trim();
   
   if(!이름){ alert('이름은 필수입니다'); return; }
+  
+  // 버튼 로딩 상태 (저장/비활성/취소 모두 비활성화)
+  const origText = btn ? btn.textContent : '';
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = '저장 중...';
+    btn.classList.add('btn-loading');
+  }
+  const otherBtns = [
+    document.getElementById('ie-deactivate-btn'),
+    document.getElementById('ie-reactivate-btn'),
+    document.getElementById('ie-cancel-btn'),
+  ];
+  otherBtns.forEach(b => { if(b) b.disabled = true; });
   
   try{
     await apiPost('updateItem', {id, 이름, 규격, 카테고리id, 메모});
@@ -4813,6 +4949,13 @@ async function doUpdateItem(){
     // 백그라운드 동기화
     setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
+    // 실패 시 버튼 복원
+    if(btn && document.body.contains(btn)){
+      btn.disabled = false;
+      btn.textContent = origText;
+      btn.classList.remove('btn-loading');
+    }
+    otherBtns.forEach(b => { if(b && document.body.contains(b)) b.disabled = false; });
     alert('수정 실패: ' + e.message);
   }
 }
@@ -4821,6 +4964,21 @@ async function doDeactivateItem(itemId){
   const item = ITEMS.find(i => i.id === itemId);
   if(!item) return;
   if(!confirm(`"${item['이름']}" 품목을 비활성화하시겠습니까?\n\n발주 입력 목록에서 숨겨집니다. 과거 발주·정산에는 그대로 표시됩니다.\n나중에 "비활성 포함" 체크박스로 보고 재활성화할 수 있습니다.`)) return;
+  
+  // 버튼 로딩 상태
+  const btn = document.getElementById('ie-deactivate-btn');
+  if(btn && btn.disabled) return;  // 중복 클릭 방지
+  const origText = btn ? btn.textContent : '';
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = '처리 중...';
+    btn.classList.add('btn-loading');
+  }
+  const otherBtns = [
+    document.getElementById('ie-save-btn'),
+    document.getElementById('ie-cancel-btn'),
+  ];
+  otherBtns.forEach(b => { if(b) b.disabled = true; });
   
   try{
     await apiPost('setItemActive', {id: itemId, 활성: false});
@@ -4837,6 +4995,13 @@ async function doDeactivateItem(itemId){
     }
     setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
+    // 실패 시 버튼 복원
+    if(btn && document.body.contains(btn)){
+      btn.disabled = false;
+      btn.textContent = origText;
+      btn.classList.remove('btn-loading');
+    }
+    otherBtns.forEach(b => { if(b && document.body.contains(b)) b.disabled = false; });
     alert('처리 실패: ' + e.message);
   }
 }
@@ -4846,6 +5011,21 @@ async function doReactivateItem(itemId){
   const item = (ALL_ITEMS_INCLUDING_INACTIVE || ITEMS).find(i => i.id === itemId);
   if(!item) return;
   if(!confirm(`"${item['이름']}" 품목을 재활성화하시겠습니까?\n\n발주 입력 목록에 다시 표시됩니다.`)) return;
+  
+  // 버튼 로딩 상태
+  const btn = document.getElementById('ie-reactivate-btn');
+  if(btn && btn.disabled) return;
+  const origText = btn ? btn.textContent : '';
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = '처리 중...';
+    btn.classList.add('btn-loading');
+  }
+  const otherBtns = [
+    document.getElementById('ie-save-btn'),
+    document.getElementById('ie-cancel-btn'),
+  ];
+  otherBtns.forEach(b => { if(b) b.disabled = true; });
   
   try{
     await apiPost('setItemActive', {id: itemId, 활성: true});
@@ -4868,6 +5048,13 @@ async function doReactivateItem(itemId){
     }
     setTimeout(() => loadDataSilent(), 1500);
   }catch(e){
+    // 실패 시 버튼 복원
+    if(btn && document.body.contains(btn)){
+      btn.disabled = false;
+      btn.textContent = origText;
+      btn.classList.remove('btn-loading');
+    }
+    otherBtns.forEach(b => { if(b && document.body.contains(b)) b.disabled = false; });
     alert('처리 실패: ' + e.message);
   }
 }
@@ -5099,6 +5286,11 @@ document.getElementById('today-str').textContent = getTodayStr();
     await loadData();
     // 여기 도달하면 세션 유효
     updateUserMenuUI();
+    // 🚀 Keep-alive: 50초마다 GAS 서버 깨우기 (콜드 스타트 방지)
+    //   - GAS 인스턴스가 잠들면 첫 호출이 1~3초 느림
+    //   - 가벼운 ping으로 항상 깨어있게 유지 → 체감 속도 향상
+    //   - 앱 열려있을 때만 동작. 탭 닫으면 자동 중지
+    startKeepAlivePing();
   }catch(e){
     // loadData 실패 — 세션 만료면 이미 showLoginScreen() 호출됨
     if(!/세션이 만료|로그인이 필요/.test(e.message || '')){
@@ -5107,6 +5299,19 @@ document.getElementById('today-str').textContent = getTodayStr();
     }
   }
 })();
+
+/* Keep-alive ping — GAS 콜드 스타트 방지 */
+let _keepAliveTimer = null;
+function startKeepAlivePing(){
+  if(_keepAliveTimer) return;  // 중복 실행 방지
+  // 50초마다 가벼운 ping (하루 1728회, GAS 실행 한도 내 안전)
+  _keepAliveTimer = setInterval(() => {
+    // 탭이 백그라운드면 건너뛰기 (배터리/데이터 절약)
+    if(document.hidden) return;
+    fetch(API_URL + '?action=ping&token=' + encodeURIComponent(AUTH_TOKEN))
+      .catch(() => {/* 조용히 실패 — 다음 시도 기다림 */});
+  }, 50000);
+}
 
 </script>
 </body>
