@@ -2720,6 +2720,19 @@ async function saveNewItem(){
     });
     ITEMS.push(addResult.item);
     
+    // 🎯 lazy 상태 대응: currentOrder가 없으면 여기서 발주 레코드 생성
+    if(!currentOrder){
+      try{
+        await ensureDraftOrder();
+      }catch(e){
+        // 발주 생성 실패 — 품목은 등록됐으니 목록만 갱신하고 종료
+        setSyncStatus('error', '발주 생성 실패');
+        showToast('⚠ 품목은 추가됐지만 발주 시작 실패: ' + e.message);
+        renderOrderScreen();
+        return;
+      }
+    }
+    
     const lineResult = await apiPost('addOrderLine', {
       발주id: currentOrder.id,
       품목id: addResult.id,
