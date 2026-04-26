@@ -4271,9 +4271,13 @@ function showLoginScreen(){
   if(app) app.style.display = 'none';
   document.getElementById('screen-login').style.display = 'flex';
   
-  // 하단 summary bar도 숨김
-  document.getElementById('summary-bar').style.display = 'none';
-  document.getElementById('receive-bar').style.display = 'none';
+  // 하단 summary bar도 숨김 (인라인 스타일 X — show 클래스 제거로만 처리)
+  // 인라인 display:none 박으면 CSS의 .show가 못 이겨서 다음에 안 떠나는 버그 방지
+  document.getElementById('summary-bar').classList.remove('show');
+  document.getElementById('receive-bar').classList.remove('show');
+  // 혹시 이전에 인라인 스타일 박혀있을 수 있으니 명시적으로 제거
+  document.getElementById('summary-bar').style.removeProperty('display');
+  document.getElementById('receive-bar').style.removeProperty('display');
   
   // 포커스
   setTimeout(() => {
