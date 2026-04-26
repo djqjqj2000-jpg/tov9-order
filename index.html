@@ -59,8 +59,39 @@ body{
 .hdr{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:4px 0;}
 .hdr-left h1{font-size:19px;font-weight:700;color:var(--text);letter-spacing:-0.03em;}
 .hdr-left p{font-size:11px;color:var(--text2);margin-top:2px;font-family:'JetBrains Mono',monospace;}
-.back-btn{background:none;border:none;font-family:inherit;font-size:13px;color:var(--text2);cursor:pointer;padding:4px 8px;border-radius:6px;display:flex;align-items:center;gap:4px;}
-.back-btn:hover{background:var(--bg2);color:var(--text);}
+/* 🎯 뒤로가기 버튼 — 안드로이드 뒤로가기 대신 사용하도록 강조 디자인 */
+.back-btn{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  font-family:inherit;
+  font-size:13px;
+  font-weight:500;
+  color:var(--text);
+  cursor:pointer;
+  padding:8px 14px 8px 10px;
+  border-radius:8px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-height:36px;
+  transition:all 0.15s;
+  letter-spacing:-0.01em;
+}
+.back-btn:hover{
+  background:var(--bg3);
+  border-color:var(--border-strong);
+}
+.back-btn:active{
+  transform:scale(0.96);
+  background:var(--accent-bg);
+}
+.back-btn::before{
+  content:'←';
+  font-size:16px;
+  font-weight:600;
+  color:var(--accent);
+  line-height:1;
+}
 
 /* 동기화 상태 */
 .sync-bar{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--text3);padding:6px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-family:'JetBrains Mono',monospace;}
@@ -1151,7 +1182,7 @@ body{
 
     <div class="hdr">
       <div class="hdr-left">
-        <button class="back-btn" onclick="backToSuppliers()">‹ 거래처 선택</button>
+        <button class="back-btn" onclick="backToSuppliers()">거래처 선택</button>
         <h1 id="picker-title">거래처</h1>
         <p id="picker-subtitle"></p>
       </div>
@@ -1187,7 +1218,7 @@ body{
 
     <div class="hdr">
       <div class="hdr-left">
-        <button class="back-btn" onclick="backToPicker()">‹ 뒤로</button>
+        <button class="back-btn" onclick="backToPicker()">거래처 진입</button>
         <h1 id="order-title">거래처</h1>
         <p id="order-subtitle">작성중</p>
       </div>
@@ -1230,7 +1261,7 @@ body{
 
     <div class="hdr">
       <div class="hdr-left">
-        <button class="back-btn" onclick="backToPickerFromReceive()">‹ 뒤로</button>
+        <button class="back-btn" onclick="backToPickerFromReceive()">거래처 진입</button>
         <h1 id="receive-title">입고 처리</h1>
         <p id="receive-subtitle"></p>
       </div>
@@ -1273,7 +1304,7 @@ body{
 
     <div class="hdr">
       <div class="hdr-left">
-        <button class="back-btn" id="settle-back-btn" onclick="backFromSettlement()">‹ 거래처 선택</button>
+        <button class="back-btn" id="settle-back-btn" onclick="backFromSettlement()">거래처 선택</button>
         <h1>📊 거래처 월별 정산</h1>
         <p id="settle-subtitle">거래처 월별 정산 · 출고일 기준</p>
       </div>
@@ -1298,7 +1329,7 @@ body{
 
     <div class="hdr">
       <div class="hdr-left">
-        <button class="back-btn" onclick="backFromHub()">‹ 거래처 선택</button>
+        <button class="back-btn" onclick="backFromHub()">거래처 선택</button>
         <h1>📊 리포트</h1>
         <p>경영 정보 & 명세서 검증</p>
       </div>
@@ -1342,7 +1373,7 @@ body{
 
     <div class="hdr">
       <div class="hdr-left">
-        <button class="back-btn" onclick="backFromOverview()">‹ 리포트</button>
+        <button class="back-btn" onclick="backFromOverview()">리포트</button>
         <h1>📈 월별 재료비</h1>
         <p>전 거래처 통합 · 출고일 기준</p>
       </div>
@@ -1366,7 +1397,7 @@ body{
 
     <div class="hdr">
       <div class="hdr-left">
-        <button class="back-btn" onclick="backFromAdmin()">‹ 거래처 선택</button>
+        <button class="back-btn" onclick="backFromAdmin()">거래처 선택</button>
         <h1>⚙️ 관리</h1>
         <p>직원 · 권한 · 거래처 관리</p>
       </div>
@@ -3574,9 +3605,9 @@ function updateSettleBackBtn(){
   const btn = document.getElementById('settle-back-btn');
   if(!btn) return;
   if(settleState.cameFrom === 'overview'){
-    btn.textContent = '‹ 월별 재료비';
+    btn.textContent = '월별 재료비';
   } else {
-    btn.textContent = '‹ 리포트';
+    btn.textContent = '리포트';
   }
 }
 
@@ -5325,6 +5356,59 @@ function startKeepAlivePing(){
       .catch(() => {/* 조용히 실패 — 다음 시도 기다림 */});
   }, 50000);
 }
+
+/* 🎯 안드로이드 뒤로가기 인터셉트 — 실수로 앱 닫히는 것 방지
+ * 
+ * 원리:
+ *   1. 앱 시작 시 history에 가짜 항목 하나 push
+ *   2. 사용자가 안드로이드 뒤로가기 누름 → popstate 이벤트 발생
+ *   3. 이벤트에서 확인창 띄우고, 즉시 가짜 항목 다시 push (다음 뒤로가기 대비)
+ *   4. 사용자가 "종료" 선택 시 history.back()으로 진짜 종료
+ * 
+ * 효과:
+ *   - 안드로이드 뒤로가기 = 앱 종료 직전에 항상 한 번 더 묻기
+ *   - 화면 좌측상단 [← 뒤로]는 그대로 작동 (이게 권장 동작)
+ *   - iOS는 이 동작 없음 (스와이프로 알아서 처리)
+ */
+function setupBackButtonInterceptor(){
+  // 가짜 history 항목 push
+  history.pushState({ tov9: 'guard' }, '', location.href);
+  
+  let _confirming = false;  // 확인창 중복 방지
+  
+  window.addEventListener('popstate', function(e){
+    // 이미 확인창 떠있으면 무시 (중복 방지)
+    if(_confirming) return;
+    
+    _confirming = true;
+    // 즉시 가짜 항목 다시 push (다음 뒤로가기에 대비)
+    history.pushState({ tov9: 'guard' }, '', location.href);
+    
+    // 모달이 열려있으면 모달부터 닫기 (자연스러운 동작)
+    const openModal = document.querySelector('.modal-overlay.show');
+    if(openModal){
+      _confirming = false;
+      const modalId = openModal.id;
+      closeModal(modalId);
+      return;
+    }
+    
+    // 확인창 띄우기
+    const ok = confirm('앱을 종료하시겠어요?\n\n진행 중인 작업이 사라질 수 있습니다.\n\n※ 이전 화면으로 가시려면 좌측 상단 [← 뒤로] 버튼을 사용해주세요.');
+    _confirming = false;
+    
+    if(ok){
+      // 사용자가 종료 선택 — history.back()으로 가짜 항목 + 실제 종료
+      // 가짜 항목 하나 빼고, 그 다음 실제 종료
+      history.go(-1);
+    }
+    // 취소면 아무것도 안 함 (이미 가짜 항목 다시 push 한 상태)
+  });
+}
+
+// 페이지 로드 시 인터셉터 활성화
+setupBackButtonInterceptor();
+
 
 </script>
 </body>
