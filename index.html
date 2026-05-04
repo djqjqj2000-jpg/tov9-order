@@ -2504,7 +2504,22 @@ async function updateLineDebounced(itemId, changes){
     await deleteLine(itemId);
     return;
   }
-  if(newQty === 0) return;
+  
+  // 🎯 [버그 수정] 수량 0인데 변경단가만 입력된 경우 — 메모리에 임시 보관
+  //   → 직후에 수량을 입력하면 변경단가가 함께 적용됨
+  //   서버 호출은 하지 않음 (수량 0이라 발주 라인 만들 필요 없음)
+  if(newQty === 0){
+    if(changes.changePrice !== undefined && newCp !== ''){
+      // 임시 보관: id 없이 changePrice만 들고 있음
+      orderLines[itemId] = {
+        id: null,
+        qty: 0,
+        changePrice: newCp,
+        saving: false,
+      };
+    }
+    return;
+  }
   
   // 🎯 lazy 생성: 발주 레코드가 아직 없으면 지금 서버에 생성
   if(!currentOrder){
@@ -2520,7 +2535,8 @@ async function updateLineDebounced(itemId, changes){
     }
   }
   
-  if(!existing){
+  // existing이 있어도 id가 null이면 (변경단가만 임시 보관된 케이스) INSERT 흐름
+  if(!existing || !existing.id){
     setSyncStatus('syncing', '저장 중...');
     orderLines[itemId] = {id: 'temp_'+Date.now(), qty: newQty, changePrice: newCp, saving: true};
     renderOrderScreen();
@@ -2675,6 +2691,12 @@ function openQuickAdd(){
   document.getElementById('new-item-price').value = '';
   document.getElementById('new-item-qty').value = '';
   document.getElementById('similar-wrap').innerHTML = '';
+  // 🎯 [버그 방지] 버튼 상태 초기화 — 이전 추가 후 상태 남아있을 수 있음
+  const btn = document.querySelector('#quick-add-overlay .btn-primary');
+  if(btn){
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+  }
   document.getElementById('quick-add-overlay').classList.add('show');
   setTimeout(()=>document.getElementById('new-item-name').focus(), 100);
 }
@@ -2790,6 +2812,12 @@ async function saveNewItem(){
   }catch(e){
     setSyncStatus('error', '추가 실패');
     showToast('⚠ 추가 실패: ' + e.message);
+  }finally{
+    // 🎯 [버그 수정] 버튼 상태 복원 — 다음 번 모달 열 때 정상 클릭 가능하게
+    if(btn){
+      btn.disabled = false;
+      btn.classList.remove('btn-loading');
+    }
   }
 }
 
