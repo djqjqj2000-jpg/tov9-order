@@ -268,10 +268,43 @@ body{
 .receive-header-bar{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;}
 .receive-date-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .receive-date-field{display:flex;flex-direction:column;gap:5px;}
+.receive-date-field-single{display:flex;flex-direction:column;gap:5px;}
 .receive-date-label{font-size:11px;color:var(--text2);font-weight:500;}
 .receive-date-input{font-family:inherit;font-size:14px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);}
 .receive-date-input:focus{outline:none;border-color:var(--accent);}
 .receive-date-hint{font-size:10px;color:var(--text3);margin-top:2px;font-style:italic;}
+
+/* 출고일 토글 */
+.receive-out-toggle{
+  display:flex;align-items:center;gap:6px;
+  font-size:12px;color:var(--text2);cursor:pointer;
+  padding:8px 10px;background:var(--bg2);border-radius:8px;
+  border:1px solid var(--border);
+  user-select:none;
+  transition:all 0.15s;
+}
+.receive-out-toggle:hover{background:var(--bg3);color:var(--text);}
+.receive-out-toggle.active{background:var(--accent-bg);color:var(--accent);border-color:var(--accent-bg2);}
+.toggle-arrow{font-size:10px;transition:transform 0.15s;display:inline-block;}
+.toggle-arrow.open{transform:rotate(90deg);}
+.toggle-label{font-weight:500;}
+.receive-out-section{display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg2);border-radius:8px;border:1px solid var(--border);}
+
+/* 이력 조회 모드 정보 표시 */
+.receive-info-row{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 10px;background:var(--bg2);border-radius:8px;
+}
+.receive-info-icon{font-size:14px;flex-shrink:0;}
+.receive-info-label{
+  font-size:11px;color:var(--text2);font-weight:500;
+  min-width:48px;
+}
+.receive-info-value{
+  font-size:13px;color:var(--text);font-weight:600;
+  font-family:'JetBrains Mono',monospace;
+  letter-spacing:-0.01em;
+}
 
 .bulk-actions{display:flex;gap:6px;}
 .bulk-btn{font-family:inherit;font-size:12px;padding:7px 14px;border:1px solid var(--border);border-radius:100px;background:var(--surface);color:var(--text2);cursor:pointer;font-weight:500;}
@@ -1281,20 +1314,49 @@ body{
     </div>
 
     <div class="receive-header-bar">
-      <div class="receive-date-row">
-        <div class="receive-date-field">
-          <span class="receive-date-label">출고일 (거래처 기준)</span>
-          <input id="receive-date-out" type="date" class="receive-date-input" onchange="onReceiveDateChange('out')">
-        </div>
-        <div class="receive-date-field">
+      <!-- 입고 처리 모드: 입고일 + 출고일 토글 -->
+      <div id="receive-edit-mode">
+        <div class="receive-date-field-single">
           <span class="receive-date-label">입고일 (토브나인 수령)</span>
           <input id="receive-date-in" type="date" class="receive-date-input" onchange="onReceiveDateChange('in')">
         </div>
+        
+        <div class="receive-out-toggle" id="receive-out-toggle" onclick="toggleOutDate()">
+          <span class="toggle-arrow" id="toggle-arrow">▶</span>
+          <span class="toggle-label">출고일이 다름 (택배 등)</span>
+        </div>
+        
+        <div class="receive-out-section" id="receive-out-section" style="display:none;">
+          <div class="receive-date-field-single">
+            <span class="receive-date-label">출고일 (거래처 기준)</span>
+            <input id="receive-date-out" type="date" class="receive-date-input" onchange="onReceiveDateChange('out')">
+          </div>
+          <div class="receive-date-hint">* 출고일 ≤ 입고일</div>
+        </div>
+        
+        <div class="bulk-actions">
+          <button class="bulk-btn" onclick="receiveSelectAll(true)">전체 선택</button>
+          <button class="bulk-btn" onclick="receiveSelectAll(false)">전체 해제</button>
+        </div>
       </div>
-      <div class="receive-date-hint" id="receive-date-hint">* 출고일 ≤ 입고일 · 명세서에 출고일 다르면 수정</div>
-      <div class="bulk-actions">
-        <button class="bulk-btn" onclick="receiveSelectAll(true)">전체 선택</button>
-        <button class="bulk-btn" onclick="receiveSelectAll(false)">전체 해제</button>
+      
+      <!-- 이력 조회 모드: 읽기 전용 정보 -->
+      <div id="receive-view-mode" style="display:none;">
+        <div class="receive-info-row">
+          <span class="receive-info-icon">📅</span>
+          <span class="receive-info-label">발주일</span>
+          <span class="receive-info-value" id="view-order-date">-</span>
+        </div>
+        <div class="receive-info-row">
+          <span class="receive-info-icon">📦</span>
+          <span class="receive-info-label">입고일</span>
+          <span class="receive-info-value" id="view-receive-date">-</span>
+        </div>
+        <div class="receive-info-row" id="view-out-row" style="display:none;">
+          <span class="receive-info-icon">🚚</span>
+          <span class="receive-info-label">출고일</span>
+          <span class="receive-info-value" id="view-out-date">-</span>
+        </div>
       </div>
     </div>
 
@@ -3036,13 +3098,134 @@ function showScreenReceive(){
   document.getElementById('screen-receive').style.display = 'block';
   document.getElementById('summary-bar').classList.remove('show');
   
-  // 날짜 기본값: 오늘
-  const today = todayDateStr();
-  document.getElementById('receive-date-in').value = today;
-  document.getElementById('receive-date-out').value = today;
+  const lines = ORDER_DETAILS.filter(d => d['발주id'] === receiveOrder.id);
+  const status = receiveOrder['상태'];
+  const isViewMode = (status === '전체완료');  // 이력 조회 모드
+  
+  if(isViewMode){
+    // 📜 이력 조회 모드: 입력칸 숨김 + 정보 표시
+    document.getElementById('receive-edit-mode').style.display = 'none';
+    document.getElementById('receive-view-mode').style.display = 'flex';
+    document.getElementById('receive-view-mode').style.flexDirection = 'column';
+    document.getElementById('receive-view-mode').style.gap = '8px';
+    
+    // 발주일
+    const orderDate = formatDateWithDow(receiveOrder['작성일']);
+    document.getElementById('view-order-date').textContent = orderDate;
+    
+    // 입고일 (모든 라인의 입고일 중 첫 번째)
+    const firstLine = lines.find(l => l['상태'] === '입고완료');
+    if(firstLine){
+      const inDate = formatDateWithDow(firstLine['입고일']);
+      const outDate = formatDateWithDow(firstLine['출고일']);
+      document.getElementById('view-receive-date').textContent = inDate;
+      
+      // 출고일이 입고일과 다를 때만 표시
+      const inStr = normalizeDateStr(firstLine['입고일']);
+      const outStr = normalizeDateStr(firstLine['출고일']);
+      if(outStr && outStr !== inStr){
+        document.getElementById('view-out-row').style.display = 'flex';
+        document.getElementById('view-out-row').style.alignItems = 'center';
+        document.getElementById('view-out-row').style.gap = '8px';
+        document.getElementById('view-out-date').textContent = outDate;
+      } else {
+        document.getElementById('view-out-row').style.display = 'none';
+      }
+    }
+  } else {
+    // ✏️ 입고 처리 모드
+    document.getElementById('receive-edit-mode').style.display = 'flex';
+    document.getElementById('receive-edit-mode').style.flexDirection = 'column';
+    document.getElementById('receive-edit-mode').style.gap = '12px';
+    document.getElementById('receive-view-mode').style.display = 'none';
+    
+    // 헤더에 발주일 표시 (subtitle)
+    const orderDate = formatDateWithDow(receiveOrder['작성일']);
+    document.getElementById('receive-subtitle').textContent = 
+      `${receiveOrder['표시번호']||'(-)'} · 상태: ${status} · 발주일: ${orderDate}`;
+    
+    // 날짜 처리
+    const hasReceived = lines.some(l => l['상태'] === '입고완료');
+    if(!hasReceived){
+      const today = todayDateStr();
+      document.getElementById('receive-date-in').value = today;
+      document.getElementById('receive-date-out').value = today;
+    }
+    // hasReceived === true 인 경우 syncReceiveSelectionsFromBackend()에서 이미 정확한 날짜로 설정됨
+    
+    // 출고일 토글 자동 펼침: 출고일 ≠ 입고일이면 펼침
+    const inVal = document.getElementById('receive-date-in').value;
+    const outVal = document.getElementById('receive-date-out').value;
+    if(outVal && outVal !== inVal){
+      setOutDateOpen(true);
+    } else {
+      setOutDateOpen(false);
+    }
+  }
   
   renderReceiveScreen();
   window.scrollTo(0, 0);
+}
+
+/**
+ * 출고일 토글 펼침/접힘
+ */
+function setOutDateOpen(open){
+  const section = document.getElementById('receive-out-section');
+  const arrow = document.getElementById('toggle-arrow');
+  const toggle = document.getElementById('receive-out-toggle');
+  if(open){
+    section.style.display = 'flex';
+    section.style.flexDirection = 'column';
+    arrow.classList.add('open');
+    toggle.classList.add('active');
+  } else {
+    section.style.display = 'none';
+    arrow.classList.remove('open');
+    toggle.classList.remove('active');
+    // 접을 때 출고일을 입고일과 동일하게 동기화
+    const inVal = document.getElementById('receive-date-in').value;
+    document.getElementById('receive-date-out').value = inVal;
+  }
+}
+
+function toggleOutDate(){
+  const section = document.getElementById('receive-out-section');
+  const isOpen = section.style.display !== 'none';
+  setOutDateOpen(!isOpen);
+}
+
+/**
+ * 시트에서 읽은 날짜를 YYYY-MM-DD 문자열로 정규화
+ */
+function normalizeDateStr(d){
+  if(!d) return '';
+  if(d instanceof Date){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  return String(d).slice(0, 10);  // ISO 형식 첫 10자만
+}
+
+/**
+ * 날짜를 "2026-04-23 (목)" 형식으로 포맷
+ */
+function formatDateWithDow(d){
+  if(!d) return '-';
+  let dateObj;
+  if(d instanceof Date){
+    dateObj = d;
+  } else {
+    const s = String(d).slice(0, 10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    dateObj = new Date(s);
+  }
+  if(isNaN(dateObj.getTime())) return String(d);
+  const days = ['일','월','화','수','목','금','토'];
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth()+1).padStart(2,'0');
+  const dd = String(dateObj.getDate()).padStart(2,'0');
+  const dow = days[dateObj.getDay()];
+  return `${y}-${m}-${dd} (${dow})`;
 }
 
 function todayDateStr(){
@@ -3085,7 +3268,17 @@ function syncReceiveSelectionsFromBackend(){
 function renderReceiveScreen(){
   const sup = SUPPLIERS.find(s => s.id === receiveOrder['거래처id']);
   document.getElementById('receive-title').textContent = `${sup['표시명']} 입고`;
-  document.getElementById('receive-subtitle').textContent = `${receiveOrder['표시번호']||'(-)'} · 상태: ${receiveOrder['상태']}`;
+  // subtitle: 표시번호 · 상태 · 발주일 (입고 처리 모드일 때만 발주일 추가)
+  const status = receiveOrder['상태'];
+  const isViewMode = (status === '전체완료');
+  if(isViewMode){
+    // 이력 모드는 정보 영역에 발주일 표시되니 subtitle은 간단히
+    document.getElementById('receive-subtitle').textContent = `${receiveOrder['표시번호']||'(-)'} · 상태: ${status}`;
+  } else {
+    const orderDate = formatDateWithDow(receiveOrder['작성일']);
+    document.getElementById('receive-subtitle').textContent = 
+      `${receiveOrder['표시번호']||'(-)'} · 상태: ${status} · 발주일: ${orderDate}`;
+  }
   renderOrderActionButtons();  // v0.7 Part B — 주문 취소 버튼 (admin)
   
   const lines = ORDER_DETAILS.filter(d => d['발주id'] === receiveOrder.id);
@@ -3222,6 +3415,10 @@ function onReceiveDateChange(which){
   const outVal = outEl.value;
   const inVal = inEl.value;
   
+  // 출고일 토글이 닫혀있는지 확인
+  const outSection = document.getElementById('receive-out-section');
+  const isOutToggleOpen = outSection && outSection.style.display !== 'none';
+  
   if(which === 'out'){
     // 출고일 변경 → 입고일보다 나중이면 차단 + 원복
     if(inVal && outVal && outVal > inVal){
@@ -3229,9 +3426,15 @@ function onReceiveDateChange(which){
       showToast('⚠ 출고일은 입고일보다 나중일 수 없습니다');
     }
   } else if(which === 'in'){
-    // 입고일 변경 → 출고일이 입고일보다 나중이 되면 출고일을 입고일에 맞춤
-    if(outVal && inVal && outVal > inVal){
+    // 입고일 변경
+    if(!isOutToggleOpen){
+      // 토글 닫혀있으면 출고일도 같이 따라감 (자동 동기화)
       outEl.value = inVal;
+    } else {
+      // 토글 열려있으면 출고일 ≤ 입고일 보장
+      if(outVal && inVal && outVal > inVal){
+        outEl.value = inVal;
+      }
     }
   }
 }
