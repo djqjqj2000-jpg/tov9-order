@@ -559,6 +559,160 @@ body{
 }
 .settle-date-hdr-count{font-size:11px;color:var(--text3);font-weight:400;}
 
+/* 🎯 발주별 그룹 (출고일순 신규) */
+.settle-order-group{
+  margin-bottom:8px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:12px;
+  overflow:hidden;
+}
+.settle-order-hdr{
+  padding:12px 14px;
+  cursor:pointer;
+  user-select:none;
+  display:flex;flex-direction:column;gap:5px;
+  transition:background 0.12s;
+}
+.settle-order-hdr:hover{background:var(--bg2);}
+.settle-order-hdr-top{
+  display:flex;justify-content:space-between;align-items:center;gap:8px;
+}
+.settle-order-hdr-left{
+  display:flex;align-items:center;gap:8px;
+  flex:1;min-width:0;
+}
+.settle-order-chevron{
+  font-size:11px;color:var(--accent);font-weight:700;
+  flex-shrink:0;
+  transition:transform 0.12s;
+}
+.settle-order-group.expanded .settle-order-chevron{}
+.settle-order-num{
+  font-size:13px;font-weight:600;color:var(--text);
+  font-family:'JetBrains Mono',monospace;
+  letter-spacing:-0.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.settle-order-mismatch{
+  font-size:13px;color:var(--warn);
+  flex-shrink:0;
+}
+.settle-order-hdr-right{
+  display:flex;align-items:center;gap:8px;
+  flex-shrink:0;
+}
+.settle-order-total{
+  font-size:14px;font-weight:700;color:var(--text);
+  font-family:'JetBrains Mono',monospace;
+  letter-spacing:-0.02em;
+}
+.settle-order-hdr-meta{
+  display:flex;justify-content:space-between;align-items:center;gap:8px;
+  font-size:11px;color:var(--text2);
+  padding-left:19px;  /* chevron 만큼 들여쓰기 */
+}
+.settle-order-dates{
+  font-family:'JetBrains Mono',monospace;
+  letter-spacing:-0.01em;
+}
+.settle-order-count{
+  color:var(--text3);
+  font-family:'JetBrains Mono',monospace;
+}
+.settle-order-hdr-warn{
+  padding-left:19px;
+}
+.settle-order-change-badge{
+  display:inline-block;
+  font-size:10px;font-weight:600;color:var(--warn);
+  background:var(--warn-bg);
+  padding:2px 8px;
+  border-radius:4px;
+  letter-spacing:-0.01em;
+}
+.settle-order-detail{
+  display:none;
+  border-top:1px solid var(--border);
+  padding:12px;
+  background:var(--bg2);
+}
+.settle-order-group.expanded .settle-order-detail{
+  display:block;
+}
+.settle-order-actions{
+  display:flex;justify-content:flex-end;
+  margin-bottom:10px;
+}
+.settle-order-edit-btn{
+  font-family:inherit;font-size:12px;font-weight:600;
+  padding:8px 14px;
+  background:var(--surface);
+  color:var(--accent);
+  border:1.5px solid var(--accent-bg2);
+  border-radius:8px;
+  cursor:pointer;
+  transition:all 0.15s;
+  letter-spacing:-0.01em;
+}
+.settle-order-edit-btn:hover{
+  background:var(--accent-bg);
+  border-color:var(--accent);
+}
+.settle-order-edit-btn:active{transform:scale(0.97);}
+
+/* 출고일 수정 모달 */
+.ship-edit-info{
+  display:flex;flex-direction:column;gap:8px;
+  padding:12px;
+  background:var(--bg2);
+  border-radius:10px;
+  margin-bottom:14px;
+}
+.ship-edit-info-row{
+  display:flex;justify-content:space-between;align-items:center;gap:8px;
+}
+.ship-edit-info-label{
+  font-size:12px;color:var(--text2);font-weight:500;
+}
+.ship-edit-info-value{
+  font-size:13px;color:var(--text);font-weight:600;
+  font-family:'JetBrains Mono',monospace;
+  letter-spacing:-0.01em;
+}
+.ship-edit-input-group{
+  display:flex;flex-direction:column;gap:6px;
+  margin-bottom:12px;
+}
+.ship-edit-input-label{
+  font-size:12px;color:var(--text);font-weight:600;
+}
+.ship-edit-input{
+  font-family:inherit;font-size:14px;
+  padding:11px 14px;
+  border:1.5px solid var(--accent-bg2);
+  border-radius:8px;
+  background:var(--surface);
+  color:var(--text);
+  font-weight:600;
+}
+.ship-edit-input:focus{outline:none;border-color:var(--accent);}
+.ship-edit-hint{
+  font-size:10px;color:var(--text3);font-style:italic;
+}
+.ship-edit-apply-info{
+  font-size:12px;color:var(--text2);
+  padding:10px;
+  background:var(--accent-bg);
+  border-radius:8px;
+  border-left:3px solid var(--accent);
+}
+.ship-edit-warn{
+  font-size:12px;color:var(--danger);font-weight:500;
+  margin-top:8px;
+  min-height:18px;
+}
+
 .settle-line-card{
   background:var(--surface);border:1px solid var(--border);border-radius:10px;
   padding:10px 12px;margin-bottom:6px;
@@ -1646,6 +1800,49 @@ body{
     <div class="sheet-foot">
       <button class="btn-primary" onclick="saveNewItem()">추가하고 주문에 넣기</button>
       <button class="btn-secondary" onclick="closeModal('quick-add-overlay')">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- 출고일 수정 모달 (정산 보정용) -->
+<div class="modal-overlay" id="ship-date-modal-overlay" onclick="closeShipDateEditor()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-width:420px;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-hdr">
+      <span class="sheet-ttl">📝 출고일 수정</span>
+      <button class="close-x" onclick="closeShipDateEditor()">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="ship-edit-info">
+        <div class="ship-edit-info-row">
+          <span class="ship-edit-info-label">발주</span>
+          <span class="ship-edit-info-value" id="ship-edit-order-num">-</span>
+        </div>
+        <div class="ship-edit-info-row">
+          <span class="ship-edit-info-label">📦 입고일</span>
+          <span class="ship-edit-info-value" id="ship-edit-in-date">-</span>
+        </div>
+        <div class="ship-edit-info-row">
+          <span class="ship-edit-info-label">🚚 현재 출고일</span>
+          <span class="ship-edit-info-value" id="ship-edit-current">-</span>
+        </div>
+      </div>
+      
+      <div class="ship-edit-input-group">
+        <label class="ship-edit-input-label">새 출고일</label>
+        <input id="ship-edit-input" type="date" class="ship-edit-input">
+        <div class="ship-edit-hint">⚠ 출고일은 입고일보다 나중일 수 없습니다</div>
+      </div>
+      
+      <div class="ship-edit-apply-info">
+        이 발주의 모든 품목 (<span id="ship-edit-line-count">0</span>건)에 일괄 적용됩니다.
+      </div>
+      
+      <div class="ship-edit-warn" id="ship-edit-warn"></div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn-primary" id="ship-edit-save-btn" onclick="saveShipDateEdit()">저장</button>
+      <button class="btn-secondary" onclick="closeShipDateEditor()">취소</button>
     </div>
   </div>
 </div>
@@ -3965,6 +4162,7 @@ let settleState = {
   sort: 'date',       // 'date' | 'item'
   expandAll: false,   // 품목순에서 전체 펼치기
   expandedItems: {},  // {품목id: true}
+  expandedOrders: {}, // {발주id: true} — 출고일순(발주별 그룹)에서 펼침 상태
   data: null,         // 서버 응답
   cameFrom: 'hub',    // 'hub' | 'overview' — 뒤로 갈 때 어디로?
 };
@@ -3982,6 +4180,7 @@ function showSettlementScreen(opts){
     if(opts.month) settleState.month = opts.month;
     settleState.cameFrom = opts.cameFrom || 'overview';
     settleState.expandedItems = {};
+    settleState.expandedOrders = {};
     settleState.expandAll = false;
     
     // 필터 UI 동기화
@@ -4062,6 +4261,7 @@ function onSettleFilterChange(){
   settleState.year = parseInt(document.getElementById('settle-year').value);
   settleState.month = parseInt(document.getElementById('settle-month').value);
   settleState.expandedItems = {}; // 필터 바뀌면 펼침 상태 초기화
+  settleState.expandedOrders = {};
   settleState.expandAll = false;
   if(!settleState.supplierId){
     settleState.data = null;
@@ -4164,27 +4364,97 @@ function renderSettleContent(){
 }
 
 function renderSettleByDate(lines){
-  // 출고일별 그룹
+  // 🎯 발주별 그룹 (사장님 확정: 같은 발주는 같은 출고일)
   const groups = {};
   lines.forEach(l => {
-    const k = l.출고일 || '날짜없음';
-    if(!groups[k]) groups[k] = [];
-    groups[k].push(l);
+    const k = l.발주id || '미분류';
+    if(!groups[k]){
+      groups[k] = {
+        발주id: l.발주id,
+        발주번호: l.발주번호 || '(번호없음)',
+        발주일: l.발주일,
+        입고일: l.입고일,
+        출고일: l.출고일,
+        lines: [],
+      };
+    }
+    groups[k].lines.push(l);
   });
-  const dates = Object.keys(groups).sort();
   
-  return dates.map(date => {
-    const grp = groups[date];
+  // 출고일 → 발주번호 순 정렬
+  const orderIds = Object.keys(groups).sort((a, b) => {
+    const A = groups[a], B = groups[b];
+    if(A.출고일 !== B.출고일) return (A.출고일||'').localeCompare(B.출고일||'');
+    return (A.발주번호||'').localeCompare(B.발주번호||'');
+  });
+  
+  return orderIds.map(orderId => {
+    const g = groups[orderId];
+    const total = g.lines.reduce((s, l) => s + (l.금액||0), 0);
+    const count = g.lines.length;
+    const changeCount = g.lines.filter(l => l.변동있음).length;
+    
+    const isExpanded = !!settleState.expandedOrders[orderId];
+    const chevron = isExpanded ? '▼' : '▶';
+    const expClass = isExpanded ? ' expanded' : '';
+    
+    // 입고일 ≠ 출고일이면 강조 표시
+    const dateMismatch = g.출고일 && g.입고일 && g.출고일 !== g.입고일;
+    const dateMismatchHtml = dateMismatch 
+      ? `<span class="settle-order-mismatch" title="출고일과 입고일이 다름">⚠</span>` 
+      : '';
+    
+    const changeBadge = changeCount > 0 
+      ? `<span class="settle-order-change-badge">⚠ 단가변동 ${changeCount}건</span>` 
+      : '';
+    
     return `
-      <div class="settle-date-group">
-        <div class="settle-date-hdr">
-          📅 ${date}
-          <span class="settle-date-hdr-count">· ${grp.length}건</span>
+      <div class="settle-order-group${expClass}">
+        <div class="settle-order-hdr" onclick="toggleSettleOrder('${escapeHtml(orderId)}')">
+          <div class="settle-order-hdr-top">
+            <div class="settle-order-hdr-left">
+              <span class="settle-order-chevron">${chevron}</span>
+              <span class="settle-order-num">${escapeHtml(g.발주번호)}</span>
+              ${dateMismatchHtml}
+            </div>
+            <div class="settle-order-hdr-right">
+              <span class="settle-order-total">${total.toLocaleString('ko-KR')}원</span>
+            </div>
+          </div>
+          <div class="settle-order-hdr-meta">
+            <span class="settle-order-dates">
+              📅 ${formatDateShort(g.발주일)} 
+              · 📦 ${formatDateShort(g.입고일)} 
+              · 🚚 ${formatDateShort(g.출고일)}
+            </span>
+            <span class="settle-order-count">${count}건</span>
+          </div>
+          ${changeBadge ? `<div class="settle-order-hdr-warn">${changeBadge}</div>` : ''}
         </div>
-        ${grp.map(l => renderSettleLine(l)).join('')}
+        <div class="settle-order-detail">
+          <div class="settle-order-actions">
+            <button class="settle-order-edit-btn" onclick="event.stopPropagation();openShipDateEditor('${escapeHtml(orderId)}')">
+              📝 출고일 수정
+            </button>
+          </div>
+          ${g.lines.map(l => renderSettleLine(l)).join('')}
+        </div>
       </div>
     `;
   }).join('');
+}
+
+/**
+ * 날짜를 "4/23 (목)" 짧은 형식으로
+ */
+function formatDateShort(d){
+  if(!d) return '-';
+  const s = String(d).slice(0, 10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const dateObj = new Date(s);
+  if(isNaN(dateObj.getTime())) return s;
+  const days = ['일','월','화','수','목','금','토'];
+  return `${dateObj.getMonth()+1}/${dateObj.getDate()} (${days[dateObj.getDay()]})`;
 }
 
 function renderSettleLine(l){
@@ -4297,6 +4567,108 @@ function toggleSettleExpandAll(){
   settleState.expandAll = !settleState.expandAll;
   settleState.expandedItems = {}; // 개별 상태 초기화
   renderSettleContent();
+}
+
+/* 🎯 발주별 그룹 토글 (출고일순 모드) */
+function toggleSettleOrder(orderId){
+  settleState.expandedOrders[orderId] = !settleState.expandedOrders[orderId];
+  renderSettleContent();
+}
+
+/* 🎯 출고일 수정 모달 */
+let _shipDateEditTarget = null;  // 현재 수정 중인 발주 정보
+
+function openShipDateEditor(orderId){
+  // 발주 정보 가져오기
+  if(!settleState.data) return;
+  const lines = settleState.data.lines.filter(l => l.발주id === orderId);
+  if(lines.length === 0){
+    showToast('발주 정보를 찾을 수 없습니다');
+    return;
+  }
+  const sample = lines[0];
+  
+  _shipDateEditTarget = {
+    orderId: orderId,
+    발주번호: sample.발주번호,
+    발주일: sample.발주일,
+    입고일: sample.입고일,
+    현재출고일: sample.출고일,
+    영향라인수: lines.length,
+  };
+  
+  // 모달 채우기
+  document.getElementById('ship-edit-order-num').textContent = sample.발주번호 || '(번호없음)';
+  document.getElementById('ship-edit-in-date').textContent = formatDateWithDow(sample.입고일);
+  document.getElementById('ship-edit-current').textContent = formatDateWithDow(sample.출고일);
+  document.getElementById('ship-edit-line-count').textContent = lines.length;
+  
+  const inp = document.getElementById('ship-edit-input');
+  inp.value = sample.출고일 || '';
+  if(sample.입고일) inp.max = sample.입고일;  // 입고일 이후로는 못 가게
+  
+  document.getElementById('ship-edit-warn').textContent = '';
+  
+  document.getElementById('ship-date-modal-overlay').classList.add('show');
+}
+
+function closeShipDateEditor(){
+  document.getElementById('ship-date-modal-overlay').classList.remove('show');
+  _shipDateEditTarget = null;
+}
+
+async function saveShipDateEdit(){
+  if(!_shipDateEditTarget) return;
+  const newDate = document.getElementById('ship-edit-input').value;
+  const warn = document.getElementById('ship-edit-warn');
+  warn.textContent = '';
+  
+  if(!newDate){
+    warn.textContent = '⚠ 출고일을 입력해주세요';
+    return;
+  }
+  if(_shipDateEditTarget.입고일 && newDate > _shipDateEditTarget.입고일){
+    warn.textContent = `⚠ 출고일은 입고일(${_shipDateEditTarget.입고일})보다 나중일 수 없습니다`;
+    return;
+  }
+  if(newDate === _shipDateEditTarget.현재출고일){
+    closeShipDateEditor();
+    return;  // 변화 없음
+  }
+  
+  const btn = document.getElementById('ship-edit-save-btn');
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  btn.textContent = '저장 중...';
+  
+  try{
+    await apiPost('updateOrderShipDate', {
+      발주id: _shipDateEditTarget.orderId,
+      출고일: newDate,
+      작성자: CURRENT_USER ? CURRENT_USER.id : '',
+    });
+    
+    showToast(`출고일 ${newDate}로 수정됨 (${_shipDateEditTarget.영향라인수}건 적용)`);
+    closeShipDateEditor();
+    
+    // 정산 데이터 다시 로드
+    const supplierId = settleState.supplierId;
+    const year = settleState.year;
+    const month = settleState.month;
+    try{
+      const data = await apiCall({action: 'getSettlementByPeriod', supplierId, year, month});
+      settleState.data = data;
+      renderSettleContent();
+    }catch(e){
+      // 데이터 로드 실패해도 수정은 됐으니 토스트만
+      showToast('수정됨 (다시 진입하면 갱신됩니다)');
+    }
+  }catch(e){
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+    btn.textContent = '저장';
+    warn.textContent = '⚠ 저장 실패: ' + e.message;
+  }
 }
 
 /* ── 이미지 저장 ── */
